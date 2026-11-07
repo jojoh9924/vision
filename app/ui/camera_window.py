@@ -46,6 +46,9 @@ class CameraWindow(tk.Toplevel):
                 cv2.putText(frame, text, (8, VIEW_H - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
             if self.c.paused:
                 cv2.putText(frame, "PAUSED", (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            if getattr(self.c.backend, "listening", False):
+                cv2.putText(frame, "DICTATING", (VIEW_W - 118, 22),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (80, 255, 80), 2)
             status = s.get('cursor_label', 'UNTRAINED')
             adaptive = 'ON' if s.get('adaptive_enabled', False) else 'OFF'
             cv2.putText(frame, f'{status} {s.get("cursor_score", 0):.2f}',

@@ -35,6 +35,7 @@ class Controller:
         self.worker.start()
 
     def stop(self):
+        self.backend.stop_dictate()
         if self._hotkey:
             self._hotkey.stop()
         self.worker.stop()
