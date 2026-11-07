@@ -5,7 +5,10 @@ import pyautogui
 import autopy
 import time
 import speech_recognition as sr
+from AppKit import NSApplication, NSScreen
 from magnifier import ScreenMagnifier
+
+CAMERA_WINDOW = "Gesture Recognition"
 
 class GestureRecognizer:
     def __init__(self, activeMode=False, maxHands=1, detectionConfidence=False, trackingConfidence=0.5):
@@ -70,9 +73,23 @@ class GestureRecognizer:
 
         return fingers
 
+def pin_camera_window():
+    screens = NSScreen.screens()
+    if not screens:
+        return
+    visible = screens[0].visibleFrame()
+    for window in NSApplication.sharedApplication().windows():
+        if window.title() != CAMERA_WINDOW:
+            continue
+        window.setMovable_(False)
+        window.setFrameOrigin_((visible.origin.x, visible.origin.y))
+        return
+
+
 def main():
     w = 640
     h = 480
+    display_w, display_h = w // 2, h // 2
     frameR = 100
     smooth = 8
     prev_x, prev_y = 0, 0
@@ -112,8 +129,13 @@ def main():
 
     try:
         magnifier = ScreenMagnifier()
+        cv2.namedWindow(CAMERA_WINDOW, cv2.WINDOW_AUTOSIZE)
         while True:
             _, img = cap.read()
+            if img is None or img.size == 0:
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+                continue
             img = detector.detectHands(img)
             lmList, _ = detector.getPositions(img)
 
@@ -198,10 +220,13 @@ def main():
             fps = 1 / (curr_time - prev_time)
             prev_time = curr_time
             cv2.putText(img, str(int(fps)), (20, 50), cv2.FONT_HERSHEY_PLAIN, 3, (0, 0, 0), 3)
-            cv2.imshow("Gesture Recognition", img)
+            preview = cv2.resize(img, (display_w, display_h), interpolation=cv2.INTER_AREA)
+            cv2.imshow(CAMERA_WINDOW, preview)
             magnifier.update()
+            key = cv2.waitKey(1) & 0xFF
+            pin_camera_window()
 
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            if key == ord('q'):
                 break
     finally:
         cap.release()
