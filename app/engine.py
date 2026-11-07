@@ -10,8 +10,6 @@ from .profiles import Mapping, Profile
 
 LOST_TIMEOUT = 0.3    # seconds without a hand before held buttons are released
 DRAG_DEADZONE_PX = 40  # knuckle travel (screen px) while a button is held before a drag starts
-HOVER_RADIUS_PX = 18   # target wobble treated as "holding still"
-HOVER_MS = 450         # how long still before the cursor locks in place
 HOVER_BREAK_PX = 32    # knuckle movement needed to leave a locked position
 APPROACH_GAP = 0.65    # thumb-index gap (hand sizes) below which a pinch may be starting
 APPROACH_DROP = 0.10   # gap must have shrunk by this much within APPROACH_WINDOW to count
@@ -49,7 +47,6 @@ class Engine:
         self._last_seen = 0.0
         # cursor stabilisation
         self._lock = None           # cursor held here while hovering or starting a pinch
-        self._still_ref = None      # (target, since) used to detect holding still
         self._press_knuckle = None  # knuckle screen position when a button went down
         self._press_cursor = None
         self._drag_started = False
@@ -218,14 +215,6 @@ class Engine:
             if _dist(self._to_screen(f.knuckle), self._lock_knuckle) < HOVER_BREAK_PX:
                 return
             self._lock = None
-            self._still_ref = None
-
-        # Hover lock: once the hand has held still briefly, ignore small drift.
-        if self._still_ref is None or _dist(target, self._still_ref[0]) > HOVER_RADIUS_PX:
-            self._still_ref = (target, now)
-        elif (now - self._still_ref[1]) * 1000 >= HOVER_MS:
-            self._take_lock(f)
-            return
 
         self._glide_to(target)
 
@@ -242,7 +231,6 @@ class Engine:
                 return
             self._drag_started = True
         self._lock = None
-        self._still_ref = None
         self._glide_to((self._press_cursor[0] + dx, self._press_cursor[1] + dy))
 
     def _glide_to(self, target):

@@ -151,16 +151,14 @@ def test_pinch_start_freezes_cursor_and_drag_needs_real_motion():
     assert b.events == ["down", "up"]
 
 
-def test_hover_lock_ignores_small_drift_until_clear_move():
+def test_small_motion_after_long_hold_is_not_locked():
     e, b = make_engine()
-    e.update(feat("01000", center=(300, 240)), 0.0)
-    e.update(feat("01000", center=(301, 240)), 0.2)
-    e.update(feat("01000", center=(302, 241)), 0.5)   # still for 500 ms: locks
-    locked = b.pos
-    e.update(feat("01000", center=(305, 243)), 0.6)
-    assert b.pos == locked
-    e.update(feat("01000", center=(380, 240)), 0.7)   # clear move: follows again
-    assert b.pos != locked
+    for i in range(31):
+        e.update(feat("01000", center=(300, 240)), i / 30)
+    before = b.pos
+    e.update(feat("01000", center=(300.25, 240)), 1.04)
+    assert b.pos[0] < before[0]  # responds on the very next frame
+    assert abs(b.pos[0] - before[0]) < 2
 
 
 def test_toggle_gesture_fires_even_while_paused_and_only_that():
