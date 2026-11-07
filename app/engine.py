@@ -17,6 +17,8 @@ APPROACH_WINDOW = 0.15 # seconds
 CURL_SPEED = 3.5       # fingertip speed relative to the knuckle (hand sizes / s) that means "clicking"
 REWIND_S = 0.15        # when a click starts, put the cursor back where it was this long ago
 TRAIL_S = 0.5          # how much cursor history to keep for the rewind
+CURL_CONFIRM = 0.5     # a curl is real if, next frame, the tip is still this fraction of the jump away
+EASE_S = 0.15          # after a click freeze ends, close the gap to the finger over this long
 SNAP_WINDOW = 0.25     # a click only counts if the pinched fingers snapped shut this recently
 SNAP_DROP = 0.20       # how far the gap must fall, in hand sizes, to count as a snap
 CLICK_ACTIONS = {"left_button", "left_click", "right_click", "double_click"}
@@ -32,10 +34,10 @@ class Engine:
         self.cursor_state = CursorState()
         self.cursor_label, self.cursor_score = 'UNTRAINED', 0.0
         self.filter_x, self.filter_y = OneEuroFilter(), OneEuroFilter()
-        # Off by default: One Euro tracks fast motion almost 1:1, which lets the start of a
-        # finger curl drag the cursor off a target. The fixed low-pass below (1/smooth per
-        # frame) is what the click stabilisation was tuned against. Toggle with 'a'.
-        self.adaptive = AdaptiveSmoothing(self.filter_x, self.filter_y, enabled=False)
+        # On by default: time-based One Euro smoothing, with classifier-tuned parameters
+        # when a local model exists. Toggle with 'a' to fall back to the fixed low-pass
+        # (1/smooth per frame) in _glide_to.
+        self.adaptive = AdaptiveSmoothing(self.filter_x, self.filter_y, enabled=True)
 
         self.profile: Profile | None = None
         self._ordered: list[Mapping] = []
@@ -47,6 +49,7 @@ class Engine:
         self._candidate_since = 0.0
         self._button_down = False
         self._last_seen = 0.0
+        self._prev_seen = 0.0           # time of the frame before _last_seen
         # cursor stabilisation
         self._lock = None           # cursor held here while hovering or starting a pinch
         self._press_knuckle = None  # knuckle screen position when a button went down
@@ -56,12 +59,16 @@ class Engine:
         self._trail = []            # recent (time, x, y) cursor positions, for the rewind
         self._last_tip = None       # (time, fingertip offset from knuckle) from the previous frame
         self._lock_knuckle = None   # knuckle screen position when the lock was taken
+        self._curl_pending = None   # (offset before a fast tip move, jump length, time) awaiting confirmation
+        self._click_seen = None     # when the current click motion was first seen (for the rewind)
+        self._ease = None           # (start time, dx, dy) gap being closed after a freeze ends
         self._prev_x = self.screen_w / 2
         self._prev_y = self.screen_h / 2
 
     # configuration
     def set_profile(self, profile: Profile):
         self.release()
+        self._clear_lock()
         self.profile = profile
         self._ordered = profile.ordered_mappings()
 
@@ -73,11 +80,13 @@ class Engine:
         self.paused = paused
         if paused:
             self.release()
+            self._clear_lock()
 
     def set_suspended(self, suspended: bool):
         self.suspended = suspended
         if suspended:
             self.release()
+            self._clear_lock()
 
     # per frame
     def update(self, features: HandFeatures | None, now: float):
@@ -85,13 +94,16 @@ class Engine:
             return
         if features is None:
             self._last_tip = None
+            self._curl_pending = None
             self.cursor_state.reset()
             self.cursor_label, self.cursor_score = 'NO HAND', 0.0
             self.adaptive.update('NO HAND', now)
-            if self.candidate and now - self._last_seen > LOST_TIMEOUT:
-                self.release()
+            if now - self._last_seen > LOST_TIMEOUT:
+                self._clear_lock()
+                if self.candidate:
+                    self.release()
             return
-        self._last_seen = now
+        self._prev_seen, self._last_seen = self._last_seen, now
         self._remember_gaps(features, now)
 
         candidates = self._ordered
@@ -137,6 +149,11 @@ class Engine:
     def _activate(self, m: Mapping):
         self.active = m
         action = ACTIONS[m.action]
+        if not action.moves_cursor:
+            # A click freeze belongs to pointing/clicking; drop it once another gesture has
+            # actually taken over (held past its hold time). One-frame misreads, common at
+            # the edges of the camera view, must not cancel it mid-pinch.
+            self._clear_lock()
         if action.kind == ONESHOT:
             self._fire(m.action)
         elif action.kind == BUTTON:
@@ -184,35 +201,65 @@ class Engine:
         ty = _interp(py, self.margin, self.frame_h - self.margin, 0, self.screen_h)
         return tx, ty
 
-    def _clicking(self, f: HandFeatures, now: float) -> bool:
+    def _clicking(self, f: HandFeatures, now: float) -> bool | str:
         """Is a click starting? The index curls (fingertip moves fast relative to the
-        knuckle) or the thumb and index close on each other quickly."""
+        knuckle) or the thumb and index close on each other quickly.
+
+        Returns True, False, or "pending": a fast tip move seen this frame that is only
+        confirmed as a curl if the tip is still displaced next frame. Landmark jitter
+        snaps back; a real curl stays curled."""
         kx, ky = f.knuckle
         offset = (f.pointer[0] - kx, f.pointer[1] - ky)
         curling = False
-        if self._last_tip is not None:
+        if self._curl_pending is not None:
+            before, jump, seen = self._curl_pending
+            self._curl_pending = None
+            curling = _dist(offset, before) >= CURL_CONFIRM * jump
+            if curling:
+                self._click_seen = seen
+        elif self._last_tip is not None:
             t0, prev = self._last_tip
             dt = max(now - t0, 1e-3)
-            curling = _dist(offset, prev) / dt / max(f.hand_size, 1.0) >= CURL_SPEED
+            jump = _dist(offset, prev)
+            if jump / dt / max(f.hand_size, 1.0) >= CURL_SPEED:
+                if self._lock is None:
+                    self._curl_pending = (prev, jump, now)  # starting a freeze needs confirmation
+                else:
+                    curling = True                      # already frozen: stay frozen while moving
         self._last_tip = (now, offset)
 
         recent = [g[0] for t, g in self._gap_history if now - t <= APPROACH_WINDOW]
         closing = (f.pinch_gap < APPROACH_GAP and recent
                    and max(recent) - f.pinch_gap >= APPROACH_DROP)
-        return curling or closing
+        if curling or closing:
+            return True
+        return "pending" if self._curl_pending is not None else False
+
+    def _clear_lock(self):
+        self._lock = None
+        self._lock_knuckle = None
+        self._curl_pending = None
+        self._ease = None
 
     def _take_lock(self, f: HandFeatures):
         self._lock = (self._prev_x, self._prev_y)
         self._lock_knuckle = self._to_screen(f.knuckle)
+        self._ease = None
 
     def _point_cursor(self, f: HandFeatures, now: float):
         target = self._to_screen(f.pointer)
 
         # A click starting: freeze, and undo the little the curl already moved the cursor.
-        if self._clicking(f, now):
+        clicking = self._clicking(f, now)
+        if clicking == "pending":
+            return                      # hold for one frame until the curl is confirmed
+        if clicking:
             if self._lock is None:
-                self._rewind(now - REWIND_S)
+                # Measured from when the motion was first seen, not from the confirmation.
+                seen = self._click_seen if self._click_seen is not None else now
+                self._rewind(seen - REWIND_S)
                 self._take_lock(f)
+            self._click_seen = None
             return
 
         # While locked, only the hand itself moving (the knuckle) releases the lock.
@@ -221,6 +268,14 @@ class Engine:
             if _dist(self._to_screen(f.knuckle), self._lock_knuckle) < HOVER_BREAK_PX:
                 return
             self._lock = None
+            if self.adaptive.enabled:
+                # One Euro would close the gap to the finger in a single frame. Track the
+                # finger from here and fade the remaining gap out over EASE_S instead.
+                self.filter_x.reset(target[0], now)
+                self.filter_y.reset(target[1], now)
+                # Timed from the previous frame so this frame already moves part of the way.
+                start = max(self._prev_seen, now - EASE_S)
+                self._ease = (start, self._prev_x - target[0], self._prev_y - target[1])
 
         self._glide_to(target)
 
@@ -244,6 +299,13 @@ class Engine:
         if self.adaptive.enabled:
             x = self.filter_x.update(tx, self._last_seen)
             y = self.filter_y.update(ty, self._last_seen)
+            if self._ease is not None:
+                t0, ox, oy = self._ease
+                remaining = 1.0 - (self._last_seen - t0) / EASE_S
+                if remaining > 0:
+                    x, y = x + ox * remaining, y + oy * remaining
+                else:
+                    self._ease = None
         else:
             x = self._prev_x + (tx - self._prev_x) / self.smooth
             y = self._prev_y + (ty - self._prev_y) / self.smooth
@@ -259,6 +321,10 @@ class Engine:
             return
         older = [t for t in self._trail if t[0] <= when]
         _, x, y = older[-1] if older else self._trail[0]
+        # Move the filters back too, or they resume from the pre-rewind position and the
+        # cursor leaps forward when the freeze ends.
+        self.filter_x.reset(x, self._last_seen)
+        self.filter_y.reset(y, self._last_seen)
         self._emit(x, y)
         self._trail = []
 
