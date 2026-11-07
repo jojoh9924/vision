@@ -1,7 +1,7 @@
-"""Thin always-visible pane on the right: on/off switch, profile picker and the gesture legend."""
+"""Thin always-visible pane on the right: switches and the gesture legend."""
 
 import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
+from tkinter import messagebox, ttk
 
 from PIL import Image, ImageDraw, ImageTk
 
@@ -28,6 +28,7 @@ AMBER = "#f5a623"
 AMBER_SOFT = "#fff5e0"
 RED = "#d9534f"
 GREY = "#c9ccd4"
+SCROLL = "#aeb3bf"
 
 FONT = "Segoe UI"
 
@@ -51,11 +52,10 @@ class Pane(tk.Tk):
 
         self._rows: dict[str, dict] = {}
         self._photos: list = []
-        self._pid_by_name: dict[str, str] = {}
         self._style()
         self._build()
-        self.refresh_profiles()
         self.refresh_rows()
+        self._sync_switches()
         self.c.dispatch = lambda fn: self.after(0, fn)
         self.c.listen(self._on_event)
         self.after(POLL_MS, self._poll)
@@ -67,15 +67,13 @@ class Pane(tk.Tk):
             st.theme_use("clam")
         except tk.TclError:
             pass
-        st.configure("TCombobox", fieldbackground=CARD, background=CARD, bordercolor=BORDER,
-                     arrowcolor=MUTED, padding=4, relief="flat")
-        st.map("TCombobox", fieldbackground=[("readonly", CARD)], bordercolor=[("focus", GREEN)])
-        st.configure("Flat.TMenubutton", background=CARD, bordercolor=BORDER, relief="flat",
-                     padding=4, arrowcolor=MUTED, foreground=MUTED)
-        st.map("Flat.TMenubutton", background=[("active", TILE)])
-        st.configure("Thin.Vertical.TScrollbar", background=GREY, troughcolor=BG, bordercolor=BG,
-                     arrowcolor=BG, relief="flat", width=int(6 * self.scale))
-        st.map("Thin.Vertical.TScrollbar", background=[("active", FAINT)])
+        st.configure("Pane.Vertical.TScrollbar", background=SCROLL, troughcolor=BG, bordercolor=BG,
+                     lightcolor=SCROLL, darkcolor=SCROLL, arrowcolor=MUTED, relief="flat",
+                     width=int(10 * self.scale))
+        st.map("Pane.Vertical.TScrollbar", background=[("active", MUTED)])
+        st.configure("Link.TButton", background=BG, foreground=MUTED, bordercolor=BG, focuscolor=BG,
+                     relief="flat", padding=(4, 2), font=(FONT, 8))
+        st.map("Link.TButton", foreground=[("active", TEXT)], background=[("active", BG)])
 
     def _pad(self, n):
         return int(n * self.scale)
@@ -91,6 +89,20 @@ class Pane(tk.Tk):
         tk.Label(parent, text=text.upper(), bg=BG, fg=FAINT, anchor="w",
                  font=(FONT, 8, "bold")).pack(fill="x", padx=self._pad(14), pady=(self._pad(12), self._pad(4)))
 
+    def _switch_row(self, parent, title, command, first=False):
+        """One line of the switches card: title on the left, switch on the right."""
+        if not first:
+            tk.Frame(parent, bg=BORDER, height=1).pack(fill="x", padx=self._pad(12))
+        row = tk.Frame(parent, bg=CARD, padx=self._pad(12), pady=self._pad(7), cursor="hand2")
+        row.pack(fill="x")
+        label = tk.Label(row, text=title, bg=CARD, fg=TEXT, anchor="w", font=(FONT, 10))
+        label.pack(side="left", fill="x", expand=True)
+        switch = ToggleSwitch(row, self.scale, command=command, bg=CARD, small=True)
+        switch.pack(side="right")
+        for w in (row, label):
+            w.bind("<Button-1>", lambda e: command())
+        return switch
+
     # layout
     def _build(self):
         head = tk.Frame(self, bg=BG)
@@ -99,76 +111,43 @@ class Pane(tk.Tk):
         self.fps_label = tk.Label(head, text="", bg=BG, fg=FAINT, font=(FONT, 8))
         self.fps_label.pack(side="right", anchor="s", pady=(0, 3))
 
-        # on/off switch card
-        card = self._card(self, padx=self._pad(12), pady=self._pad(10), cursor="hand2")
+        # switches card
+        card = self._card(self)
         card.pack(fill="x", padx=self._pad(12), pady=(self._pad(10), 0))
-        row = card.inner
-        labels = tk.Frame(row, bg=CARD)
-        labels.pack(side="left", fill="x", expand=True)
-        tk.Label(labels, text="Gesture control", bg=CARD, fg=TEXT, anchor="w",
-                 font=(FONT, 10, "bold")).pack(fill="x")
-        self.state_label = tk.Label(labels, text="", bg=CARD, anchor="w", font=(FONT, 9))
-        self.state_label.pack(fill="x")
-        self.switch = ToggleSwitch(row, self.scale, command=self.c.toggle_paused, bg=CARD)
-        self.switch.pack(side="right", padx=(self._pad(8), 0))
-        for w in (row, labels, *labels.winfo_children()):
-            w.bind("<Button-1>", lambda e: self.c.toggle_paused())
+        self.sw_gestures = self._switch_row(card.inner, "Gesture control", self.c.toggle_paused, first=True)
+        self.sw_camera = self._switch_row(card.inner, "Camera view", self.c.toggle_camera)
+        self.sw_magnifier = self._switch_row(card.inner, "Magnifier", self.c.toggle_magnifier)
         self.toggle_hint = tk.Label(self, text="", bg=BG, fg=MUTED, anchor="w", justify="left",
                                     font=(FONT, 8), wraplength=self.width - self._pad(28))
-        self.toggle_hint.pack(fill="x", padx=self._pad(14), pady=(self._pad(4), 0))
-
-        # profile
-        self._section(self, "Profile")
-        prow = tk.Frame(self, bg=BG)
-        prow.pack(fill="x", padx=self._pad(12))
-        self.profile_box = ttk.Combobox(prow, state="readonly", font=(FONT, 10))
-        self.profile_box.pack(side="left", fill="x", expand=True)
-        self.profile_box.bind("<<ComboboxSelected>>", self._on_profile_selected)
-        menu_btn = ttk.Menubutton(prow, text="More", style="Flat.TMenubutton")
-        menu = tk.Menu(menu_btn, tearoff=False, font=(FONT, 9))
-        menu.add_command(label="New profile (copy of current)...", command=self._new_profile)
-        menu.add_command(label="Rename...", command=self._rename_profile)
-        menu.add_command(label="Delete", command=self._delete_profile)
-        menu.add_separator()
-        menu.add_command(label="Show camera", command=lambda: self.event_generate("<<ShowCamera>>"))
-        menu.add_command(label="Reset bundled profiles", command=self._reset_bundled)
-        menu_btn["menu"] = menu
-        menu_btn.pack(side="left", padx=(self._pad(6), 0))
+        self.toggle_hint.pack(fill="x", padx=self._pad(14), pady=(self._pad(5), 0))
 
         self.status = tk.Label(self, text="", bg=BG, fg=RED, font=(FONT, 8), anchor="w",
                                wraplength=self.width - self._pad(28), justify="left")
         self.status.pack(fill="x", padx=self._pad(14))
 
+        # footer (packed before the list so the list takes the remaining space)
+        foot = tk.Frame(self, bg=BG)
+        foot.pack(side="bottom", fill="x", padx=self._pad(10), pady=(self._pad(4), self._pad(8)))
+        ttk.Button(foot, text="Reset to defaults", style="Link.TButton",
+                   command=self._reset_defaults).pack(side="right")
+
         # actions
         self._section(self, "Actions  ·  click to edit")
         body = tk.Frame(self, bg=BG)
         body.pack(fill="both", expand=True)
-        self.canvas = tk.Canvas(body, bg=BG, highlightthickness=0)
-        self.bar = ttk.Scrollbar(body, orient="vertical", command=self.canvas.yview,
-                                 style="Thin.Vertical.TScrollbar")
-        self.canvas.configure(yscrollcommand=self._on_scroll)
+        self.bar = ttk.Scrollbar(body, orient="vertical", style="Pane.Vertical.TScrollbar")
+        self.bar.pack(side="right", fill="y", padx=(0, self._pad(4)))
+        self.canvas = tk.Canvas(body, bg=BG, highlightthickness=0, yscrollcommand=self.bar.set)
         self.canvas.pack(side="left", fill="both", expand=True)
+        self.bar.configure(command=self.canvas.yview)
         self.rows_frame = tk.Frame(self.canvas, bg=BG)
         self._rows_window = self.canvas.create_window((0, 0), window=self.rows_frame, anchor="nw")
         self.rows_frame.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
         self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self._rows_window, width=e.width))
-        self.canvas.bind_all("<MouseWheel>", self._on_wheel)
-
-    def _on_scroll(self, lo, hi):
-        self.bar.set(lo, hi)
-        if float(lo) <= 0.0 and float(hi) >= 1.0:
-            self.bar.pack_forget()
-        elif not self.bar.winfo_ismapped():
-            self.bar.pack(side="right", fill="y")
+        self.bind_all("<MouseWheel>", self._on_wheel)
 
     def _on_wheel(self, e):
-        if self.bar.winfo_ismapped():
-            self.canvas.yview_scroll(-int(e.delta / 120), "units")
-
-    def refresh_profiles(self):
-        self._pid_by_name = {p.name: p.id for p in self.c.profiles}
-        self.profile_box["values"] = list(self._pid_by_name)
-        self.profile_box.set(self.c.profile.name)
+        self.canvas.yview_scroll(-int(e.delta / 120), "units")
 
     def refresh_rows(self):
         for w in self.rows_frame.winfo_children():
@@ -177,11 +156,11 @@ class Pane(tk.Tk):
         self._photos.clear()
         profile = self.c.profile
         actions = sorted(ACTIONS.values(), key=lambda a: profile.mapping_for(a.id) is None)
-        wrap = self.width - self.icon - self._pad(64)
+        wrap = self.width - self.icon - self._pad(76)
         for action in actions:
             mapping = profile.mapping_for(action.id)
             card = self._card(self.rows_frame, cursor="hand2")
-            card.pack(fill="x", padx=self._pad(12), pady=(0, self._pad(6)))
+            card.pack(fill="x", padx=(self._pad(12), self._pad(4)), pady=(0, self._pad(6)))
             inner = card.inner
             accent = tk.Frame(inner, bg=CARD, width=self._pad(4))
             accent.pack(side="left", fill="y")
@@ -212,63 +191,41 @@ class Pane(tk.Tk):
             for w in (inner, accent, content, icon, text, *text.winfo_children()):
                 w.bind("<Button-1>", lambda e, a=action.id: self._edit(a))
             self._rows[action.id] = {"inner": inner, "accent": accent, "state": None}
-        self._update_pause_button()
+        self.canvas.yview_moveto(0)
+        self._sync_switches()
 
     # events from controller
     def _on_event(self, event):
-        if event == "profiles":
-            self.refresh_profiles()
-        elif event == "profile":
-            self.refresh_profiles()
+        if event == "profile":
             self.refresh_rows()
-        elif event == "paused":
-            self._update_pause_button()
-
-    def _update_pause_button(self):
-        self.switch.set(not self.c.paused)
-        if self.c.paused:
-            self.state_label.configure(text="Off  ·  gestures are ignored", fg=RED)
         else:
-            self.state_label.configure(text="On", fg=GREEN_DARK)
-        hint = f"Toggle with {HOTKEY_LABEL}"
+            self._sync_switches()
+
+    def _sync_switches(self):
+        self.sw_gestures.set(not self.c.paused)
+        self.sw_camera.set(self.c.camera_visible)
+        self.sw_magnifier.set(self.c.magnifier_on)
+        hint = f"Gesture control: {HOTKEY_LABEL}"
         toggle = self.c.profile.mapping_for(TOGGLE_ACTION)
         if toggle:
             hint += f", or hold {toggle.gesture.describe().lower()}"
-        self.toggle_hint.configure(text=hint)
+        if self.c.paused:
+            hint = "Gestures are off.  " + hint
+        self.toggle_hint.configure(text=hint, fg=RED if self.c.paused else MUTED)
 
     # user actions
-    def _on_profile_selected(self, _):
-        pid = self._pid_by_name.get(self.profile_box.get())
-        if pid:
-            self.c.switch_profile(pid)
-        self.focus()
-
     def _edit(self, action_id):
-        MappingEditor(self, self.c, action_id)
+        # one editor at a time; clicking another row switches it to that action
+        old = getattr(self, "_editor", None)
+        if old is not None and old.winfo_exists():
+            if old._recording:
+                old._stop_record("")
+            old.destroy()
+        self._editor = MappingEditor(self, self.c, action_id)
 
-    def _new_profile(self):
-        name = simpledialog.askstring("New profile", "Name for the new profile:", parent=self)
-        if name and name.strip():
-            self.c.new_profile(name.strip())
-
-    def _rename_profile(self):
-        if self.c.profile.bundled:
-            messagebox.showinfo("Rename", "Bundled profiles cannot be renamed. Make a copy first.", parent=self)
-            return
-        name = simpledialog.askstring("Rename profile", "New name:", initialvalue=self.c.profile.name, parent=self)
-        if name and name.strip():
-            self.c.rename_profile(name.strip())
-
-    def _delete_profile(self):
-        if self.c.profile.bundled:
-            messagebox.showinfo("Delete", "Bundled profiles cannot be deleted.", parent=self)
-            return
-        if messagebox.askyesno("Delete profile", f"Delete '{self.c.profile.name}'?", parent=self):
-            self.c.delete_profile()
-
-    def _reset_bundled(self):
-        if messagebox.askyesno("Reset", "Restore the bundled profiles to their defaults?", parent=self):
-            self.c.reset_bundled()
+    def _reset_defaults(self):
+        if messagebox.askyesno("Reset", "Put all gestures back to their defaults?", parent=self):
+            self.c.reset_defaults()
 
     # live highlight
     def _poll(self):
@@ -294,8 +251,9 @@ class Pane(tk.Tk):
 class ToggleSwitch(tk.Canvas):
     """Pill-shaped on/off switch with a sliding knob."""
 
-    def __init__(self, master, scale=1.0, command=None, **kw):
-        self.w, self.h = int(46 * scale), int(26 * scale)
+    def __init__(self, master, scale=1.0, command=None, small=False, **kw):
+        base_w, base_h = (38, 22) if small else (46, 26)
+        self.w, self.h = int(base_w * scale), int(base_h * scale)
         super().__init__(master, width=self.w, height=self.h, highlightthickness=0, bd=0,
                          cursor="hand2", **kw)
         self.command = command

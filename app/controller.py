@@ -1,4 +1,4 @@
-"""Owns the profile store, engine and worker; the UI talks to this and listens for changes."""
+"""Owns the gesture set, settings, engine and worker; the UI talks to this and listens for changes."""
 
 import sys
 
@@ -7,28 +7,29 @@ from .engine import Engine
 from .profiles import ROOT, Mapping, Profile, ProfileStore
 from .worker import Worker
 
-
 HOTKEY = "<ctrl>+<alt>+g"
 HOTKEY_LABEL = "Ctrl+Alt+G"
+PROFILE_ID = "default"
 
 
 class Controller:
     def __init__(self, camera_index=0, frame_size=(640, 480)):
         self.store = ProfileStore()
         self.store.ensure_bundled()
-        self.profiles: list[Profile] = self.store.load_all()
+        self.profile: Profile = self.store.load(PROFILE_ID)
         self.backend = PyAutoGuiBackend()
         self.engine = Engine(self.backend, frame_size=frame_size)
         self.worker = Worker(self.engine, camera_index, frame_size, on_toggle=self.toggle_paused)
+        self.engine.set_profile(self.profile)
+
         self.paused = False
+        self.camera_visible = bool(self.store.get_setting("camera_visible", True))
+        self.magnifier_on = bool(self.store.get_setting("magnifier", True))
+
         self._listeners = []
         # UI sets this to hop listener calls onto its thread (e.g. tk's after)
         self.dispatch = lambda fn: fn()
         self._hotkey = None
-
-        pid = self.store.active_profile_id()
-        self.profile = next((p for p in self.profiles if p.id == pid), self.profiles[0])
-        self.engine.set_profile(self.profile)
 
     # lifecycle
     def start(self):
@@ -42,7 +43,7 @@ class Controller:
         with self.worker.engine_lock:
             self.engine.release()
 
-    # listeners: fn(event) with event in {"profile", "profiles", "paused"}
+    # listeners: fn(event) with event in {"profile", "paused", "camera", "magnifier"}
     def listen(self, fn):
         self._listeners.append(fn)
 
@@ -64,53 +65,14 @@ class Controller:
             print(f"Global hotkey unavailable: {e}", file=sys.stderr)
             return False
 
-    # profiles
-    def reload_profiles(self):
-        self.profiles = self.store.load_all()
-        self._notify("profiles")
-
-    def switch_profile(self, pid: str):
-        profile = next((p for p in self.profiles if p.id == pid), None)
-        if profile is None or profile is self.profile:
-            return
-        self.profile = profile
-        self.store.set_active_profile_id(pid)
-        with self.worker.engine_lock:
-            self.engine.set_profile(profile)
-        self._notify("profile")
-
-    def new_profile(self, name: str) -> Profile:
-        clone = self.store.copy(self.profile, name)
-        self.reload_profiles()
-        self.switch_profile(clone.id)
-        return clone
-
-    def rename_profile(self, name: str):
-        self.profile.name = name
-        self.store.save(self.profile)
-        self.reload_profiles()
-        self._notify("profile")
-
-    def delete_profile(self) -> bool:
-        if self.profile.bundled or len(self.profiles) <= 1:
-            return False
-        doomed = self.profile.id
-        fallback = next(p for p in self.profiles if p.id != doomed)
-        self.switch_profile(fallback.id)
-        self.store.delete(doomed)
-        self.reload_profiles()
-        return True
-
-    def reset_bundled(self):
+    # gesture set
+    def reset_defaults(self):
         self.store.ensure_bundled(overwrite=True)
-        self.reload_profiles()
-        current = next((p for p in self.profiles if p.id == self.profile.id), self.profiles[0])
-        self.profile = current
+        self.profile = self.store.load(PROFILE_ID)
         with self.worker.engine_lock:
-            self.engine.set_profile(current)
+            self.engine.set_profile(self.profile)
         self._notify("profile")
 
-    # mappings
     def set_mapping(self, mapping: Mapping, replace_conflict: bool = False):
         conflict = self.profile.conflict(mapping.gesture, mapping.action)
         if conflict and replace_conflict:
@@ -136,7 +98,7 @@ class Controller:
         except ValueError:
             return str(path)
 
-    # pause
+    # gesture control on/off
     def set_paused(self, paused: bool):
         self.paused = paused
         with self.worker.engine_lock:
@@ -150,3 +112,20 @@ class Controller:
         """Stop all gesture actions temporarily (while recording a pose)."""
         with self.worker.engine_lock:
             self.engine.set_suspended(suspended)
+
+    # camera view and magnifier
+    def set_camera_visible(self, visible: bool):
+        self.camera_visible = visible
+        self.store.set_setting("camera_visible", visible)
+        self._notify("camera")
+
+    def toggle_camera(self):
+        self.set_camera_visible(not self.camera_visible)
+
+    def set_magnifier(self, on: bool):
+        self.magnifier_on = on
+        self.store.set_setting("magnifier", on)
+        self._notify("magnifier")
+
+    def toggle_magnifier(self):
+        self.set_magnifier(not self.magnifier_on)

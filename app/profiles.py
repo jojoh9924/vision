@@ -131,15 +131,20 @@ class ProfileStore:
         self.save(clone)
         return clone
 
-    # settings
-    def active_profile_id(self) -> str:
+    # settings (small key/value file)
+    def _settings(self) -> dict:
         try:
             with open(self.settings_file, encoding="utf-8") as f:
-                pid = json.load(f).get("active_profile", "default")
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
         except (OSError, ValueError):
-            pid = "default"
-        return pid if self._path(pid).exists() else "default"
+            return {}
 
-    def set_active_profile_id(self, pid: str):
+    def get_setting(self, key: str, default=None):
+        return self._settings().get(key, default)
+
+    def set_setting(self, key: str, value):
+        data = self._settings()
+        data[key] = value
         with open(self.settings_file, "w", encoding="utf-8") as f:
-            json.dump({"active_profile": pid}, f, indent=2)
+            json.dump(data, f, indent=2)

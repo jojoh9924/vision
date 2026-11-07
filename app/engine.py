@@ -10,12 +10,15 @@ from .profiles import Mapping, Profile
 
 LOST_TIMEOUT = 0.3    # seconds without a hand before held buttons are released
 DRAG_DEADZONE_PX = 40  # knuckle travel (screen px) while a button is held before a drag starts
-HOVER_RADIUS_PX = 25   # target wobble treated as "holding still"
-HOVER_MS = 250         # how long still before the cursor locks in place
-HOVER_BREAK_PX = 45    # movement needed to leave a locked position
-APPROACH_GAP = 0.55    # thumb-index gap (hand sizes) below which a pinch may be starting
-APPROACH_DROP = 0.12   # gap must have shrunk by this much within APPROACH_WINDOW to count
-APPROACH_WINDOW = 0.2  # seconds
+HOVER_RADIUS_PX = 18   # target wobble treated as "holding still"
+HOVER_MS = 450         # how long still before the cursor locks in place
+HOVER_BREAK_PX = 32    # knuckle movement needed to leave a locked position
+APPROACH_GAP = 0.65    # thumb-index gap (hand sizes) below which a pinch may be starting
+APPROACH_DROP = 0.10   # gap must have shrunk by this much within APPROACH_WINDOW to count
+APPROACH_WINDOW = 0.15 # seconds
+CURL_SPEED = 3.5       # fingertip speed relative to the knuckle (hand sizes / s) that means "clicking"
+REWIND_S = 0.15        # when a click starts, put the cursor back where it was this long ago
+TRAIL_S = 0.5          # how much cursor history to keep for the rewind
 
 
 class Engine:
@@ -28,7 +31,10 @@ class Engine:
         self.cursor_state = CursorState()
         self.cursor_label, self.cursor_score = 'UNTRAINED', 0.0
         self.filter_x, self.filter_y = OneEuroFilter(), OneEuroFilter()
-        self.adaptive = AdaptiveSmoothing(self.filter_x, self.filter_y)
+        # Off by default: One Euro tracks fast motion almost 1:1, which lets the start of a
+        # finger curl drag the cursor off a target. The fixed low-pass below (1/smooth per
+        # frame) is what the click stabilisation was tuned against. Toggle with 'a'.
+        self.adaptive = AdaptiveSmoothing(self.filter_x, self.filter_y, enabled=False)
 
         self.profile: Profile | None = None
         self._ordered: list[Mapping] = []
@@ -48,6 +54,9 @@ class Engine:
         self._press_cursor = None
         self._drag_started = False
         self._gap_history = []      # recent (time, pinch_gap)
+        self._trail = []            # recent (time, x, y) cursor positions, for the rewind
+        self._last_tip = None       # (time, fingertip offset from knuckle) from the previous frame
+        self._lock_knuckle = None   # knuckle screen position when the lock was taken
         self._prev_x = self.screen_w / 2
         self._prev_y = self.screen_h / 2
 
@@ -76,6 +85,7 @@ class Engine:
         if self.suspended:
             return
         if features is None:
+            self._last_tip = None
             self.cursor_state.reset()
             self.cursor_label, self.cursor_score = 'NO HAND', 0.0
             self.adaptive.update('NO HAND', now)
@@ -167,31 +177,51 @@ class Engine:
         ty = _interp(py, self.margin, self.frame_h - self.margin, 0, self.screen_h)
         return tx, ty
 
-    def _point_cursor(self, f: HandFeatures, now: float):
-        target = self._to_screen(f.pointer)
+    def _clicking(self, f: HandFeatures, now: float) -> bool:
+        """Is a click starting? The index curls (fingertip moves fast relative to the
+        knuckle) or the thumb and index close on each other quickly."""
+        kx, ky = f.knuckle
+        offset = (f.pointer[0] - kx, f.pointer[1] - ky)
+        curling = False
+        if self._last_tip is not None:
+            t0, prev = self._last_tip
+            dt = max(now - t0, 1e-3)
+            curling = _dist(offset, prev) / dt / max(f.hand_size, 1.0) >= CURL_SPEED
+        self._last_tip = (now, offset)
 
-        # A pinch starting: thumb and index closing fast. Freeze before the
-        # curling fingertip can drag the cursor off the target.
         self._gap_history.append((now, f.pinch_gap))
         self._gap_history = [(t, g) for t, g in self._gap_history if now - t <= APPROACH_WINDOW]
         closing = (f.pinch_gap < APPROACH_GAP
                    and max(g for _, g in self._gap_history) - f.pinch_gap >= APPROACH_DROP)
-        if closing:
+        return curling or closing
+
+    def _take_lock(self, f: HandFeatures):
+        self._lock = (self._prev_x, self._prev_y)
+        self._lock_knuckle = self._to_screen(f.knuckle)
+
+    def _point_cursor(self, f: HandFeatures, now: float):
+        target = self._to_screen(f.pointer)
+
+        # A click starting: freeze, and undo the little the curl already moved the cursor.
+        if self._clicking(f, now):
             if self._lock is None:
-                self._lock = (self._prev_x, self._prev_y)
+                self._rewind(now - REWIND_S)
+                self._take_lock(f)
             return
 
-        # Hover lock: once the hand has held still briefly, ignore small drift
-        # until it clearly moves again.
+        # While locked, only the hand itself moving (the knuckle) releases the lock.
+        # The fingertip is ignored here because a curl moves it without the hand moving.
         if self._lock is not None:
-            if _dist(target, self._lock) < HOVER_BREAK_PX:
+            if _dist(self._to_screen(f.knuckle), self._lock_knuckle) < HOVER_BREAK_PX:
                 return
             self._lock = None
             self._still_ref = None
+
+        # Hover lock: once the hand has held still briefly, ignore small drift.
         if self._still_ref is None or _dist(target, self._still_ref[0]) > HOVER_RADIUS_PX:
             self._still_ref = (target, now)
         elif (now - self._still_ref[1]) * 1000 >= HOVER_MS:
-            self._lock = (self._prev_x, self._prev_y)
+            self._take_lock(f)
             return
 
         self._glide_to(target)
@@ -214,8 +244,28 @@ class Engine:
 
     def _glide_to(self, target):
         tx, ty = target
-        x = self.filter_x.update(tx, self._last_seen)
-        y = self.filter_y.update(ty, self._last_seen)
+        if self.adaptive.enabled:
+            x = self.filter_x.update(tx, self._last_seen)
+            y = self.filter_y.update(ty, self._last_seen)
+        else:
+            x = self._prev_x + (tx - self._prev_x) / self.smooth
+            y = self._prev_y + (ty - self._prev_y) / self.smooth
+            self.filter_x.update(x, self._last_seen)   # keep in step for a smooth switch-over
+            self.filter_y.update(y, self._last_seen)
+        self._emit(x, y)
+        self._trail.append((self._last_seen, x, y))
+        self._trail = [t for t in self._trail if self._last_seen - t[0] <= TRAIL_S]
+
+    def _rewind(self, when: float):
+        """Move the cursor back to where it was at time `when` (or the oldest known)."""
+        if not self._trail:
+            return
+        older = [t for t in self._trail if t[0] <= when]
+        _, x, y = older[-1] if older else self._trail[0]
+        self._emit(x, y)
+        self._trail = []
+
+    def _emit(self, x, y):
         self._prev_x, self._prev_y = x, y
         # camera is mirrored relative to the user, so flip x
         sx = min(max(self.screen_w - x, 0), self.screen_w - 1)

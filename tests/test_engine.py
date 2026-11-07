@@ -131,33 +131,35 @@ def test_most_specific_mapping_wins():
 def test_pinch_start_freezes_cursor_and_drag_needs_real_motion():
     import dataclasses
     e, b = make_engine()
-    for i, t in enumerate([0.0, 0.03, 0.06]):
+    positions = []
+    for i, t in enumerate([0.0, 0.1, 0.2, 0.3]):
         e.update(feat("01000", center=(200 + i * 40, 240)), t)
+        positions.append(b.pos)
+    # thumb and index closing fast: the cursor is put back where it was ~120 ms ago and frozen
+    closing = dataclasses.replace(feat("01000", center=(400, 240)), pinch_gap=0.4)
+    e.update(closing, 0.33)
     before = b.pos
-    # thumb and index closing fast: gap shrinks, the moving fingertip must not drag the cursor
-    closing = dataclasses.replace(feat("01000", center=(330, 240)), pinch_gap=0.4)
-    e.update(closing, 0.09)
-    assert b.pos == before
+    assert before == positions[1]          # rewound ~150 ms, to the t=0.1 position, not the latest
     # pinch lands: button down at the frozen position, small wobble ignored
-    e.update(feat("11111", pinch="index", center=(330, 240)), 0.12)
-    e.update(feat("11111", pinch="index", center=(334, 242)), 0.15)
+    e.update(feat("11111", pinch="index", center=(400, 240)), 0.36)
+    e.update(feat("11111", pinch="index", center=(404, 242)), 0.4)
     assert b.events == ["down"] and b.pos == before
     # moving the whole hand drags
-    e.update(feat("11111", pinch="index", center=(450, 240)), 0.2)
+    e.update(feat("11111", pinch="index", center=(520, 240)), 0.5)
     assert b.pos != before
-    e.update(feat("01000", center=(450, 240)), 0.3)
+    e.update(feat("01000", center=(520, 240)), 0.6)
     assert b.events == ["down", "up"]
 
 
 def test_hover_lock_ignores_small_drift_until_clear_move():
     e, b = make_engine()
     e.update(feat("01000", center=(300, 240)), 0.0)
-    e.update(feat("01000", center=(301, 240)), 0.1)
-    e.update(feat("01000", center=(302, 241)), 0.3)   # still for 300 ms: locks
+    e.update(feat("01000", center=(301, 240)), 0.2)
+    e.update(feat("01000", center=(302, 241)), 0.5)   # still for 500 ms: locks
     locked = b.pos
-    e.update(feat("01000", center=(305, 243)), 0.4)
+    e.update(feat("01000", center=(305, 243)), 0.6)
     assert b.pos == locked
-    e.update(feat("01000", center=(380, 240)), 0.5)   # clear move: follows again
+    e.update(feat("01000", center=(380, 240)), 0.7)   # clear move: follows again
     assert b.pos != locked
 
 
@@ -203,6 +205,7 @@ def test_classifier_adjusts_filter_without_replacing_gesture_logic():
             return 'MOVING', 0.95
 
     e, b = make_engine()
+    e.adaptive.enabled = True   # adaptive One Euro is opt-in (toggle 'a' in the camera window)
     e.cursor_state = MovingClassifier()
     e.update(feat('01000', center=(200, 240)), 0.0)
     e.update(feat('01000', center=(250, 240)), 0.1)
@@ -215,3 +218,21 @@ def test_classifier_adjusts_filter_without_replacing_gesture_logic():
     assert e.filter_x.min_cutoff == 1.0 and e.filter_x.beta == 0.005
     e.update(None, 0.3)
     assert e.cursor_label == 'NO HAND'
+
+
+def test_curling_finger_does_not_move_cursor_but_hand_motion_does():
+    import dataclasses
+    e, b = make_engine()
+    f0 = feat("01000", center=(300, 240))
+    for i in range(6):
+        e.update(f0, i * 0.033)
+    settled = b.pos
+    # fingertip drops 60 px toward the palm in one frame (a curl); knuckle unchanged
+    curled = dataclasses.replace(f0, pointer=(f0.pointer[0], f0.pointer[1] + 60))
+    for i in range(6, 12):
+        e.update(curled, i * 0.033)       # stays curled for 200 ms, pinch not landed yet
+    assert abs(b.pos[1] - settled[1]) < 3
+    # the whole hand moving (knuckle and tip together) still points
+    e.update(feat("01000", center=(300, 330)), 12 * 0.033)
+    e.update(feat("01000", center=(300, 330)), 13 * 0.033)
+    assert b.pos[1] - settled[1] > 30
