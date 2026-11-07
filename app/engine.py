@@ -29,10 +29,10 @@ class Engine:
         self.cursor_state = CursorState()
         self.cursor_label, self.cursor_score = 'UNTRAINED', 0.0
         self.filter_x, self.filter_y = OneEuroFilter(), OneEuroFilter()
-        # Off by default: One Euro tracks fast motion almost 1:1, which lets the start of a
-        # finger curl drag the cursor off a target. The fixed low-pass below (1/smooth per
-        # frame) is what the click stabilisation was tuned against. Toggle with 'a'.
-        self.adaptive = AdaptiveSmoothing(self.filter_x, self.filter_y, enabled=False)
+        # On by default: time-based One Euro smoothing, with classifier-tuned parameters
+        # when a local model exists. Toggle with 'a' to fall back to the fixed low-pass
+        # (1/smooth per frame) in _glide_to.
+        self.adaptive = AdaptiveSmoothing(self.filter_x, self.filter_y, enabled=True)
 
         self.profile: Profile | None = None
         self._ordered: list[Mapping] = []
