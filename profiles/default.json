@@ -1,0 +1,76 @@
+{
+  "name": "Default (pinch)",
+  "bundled": true,
+  "mappings": [
+    {
+      "action": "move",
+      "gesture": {
+        "fingers": "*1000",
+        "pinch": null,
+        "orientation": "any"
+      },
+      "hold_ms": 0,
+      "image": null
+    },
+    {
+      "action": "scroll_up",
+      "gesture": {
+        "fingers": "*1100",
+        "pinch": null,
+        "orientation": "up"
+      },
+      "hold_ms": 120,
+      "image": null
+    },
+    {
+      "action": "scroll_down",
+      "gesture": {
+        "fingers": "*1100",
+        "pinch": null,
+        "orientation": "down"
+      },
+      "hold_ms": 120,
+      "image": null
+    },
+    {
+      "action": "speech_to_text",
+      "gesture": {
+        "fingers": "11111",
+        "pinch": null,
+        "orientation": "any"
+      },
+      "hold_ms": 1000,
+      "image": null
+    },
+    {
+      "action": "left_button",
+      "gesture": {
+        "fingers": "*****",
+        "pinch": "index",
+        "orientation": "any"
+      },
+      "hold_ms": 0,
+      "image": null
+    },
+    {
+      "action": "right_click",
+      "gesture": {
+        "fingers": "*****",
+        "pinch": "middle",
+        "orientation": "any"
+      },
+      "hold_ms": 120,
+      "image": null
+    },
+    {
+      "action": "double_click",
+      "gesture": {
+        "fingers": "*****",
+        "pinch": "ring",
+        "orientation": "any"
+      },
+      "hold_ms": 120,
+      "image": null
+    }
+  ]
+}

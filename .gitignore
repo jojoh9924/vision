@@ -1,3 +1,7 @@
 .venv/
 __pycache__/
 *.pyc
+assets/
+profiles/images/
+settings.json
+.pytest_cache/

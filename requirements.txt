@@ -1,9 +1,14 @@
-opencv-python==4.11.0.86
-mediapipe==0.10.21
+opencv-python
+mediapipe>=0.10.21
 numpy
 pyautogui
-autopy
+Pillow
+pystray
 SpeechRecognition
 PyAudio
-pyobjc-framework-Cocoa
-pyobjc-framework-Quartz
+pytest
+
+# macOS only: screen magnifier (magnifier.py)
+autopy; sys_platform == "darwin"
+pyobjc-framework-Cocoa; sys_platform == "darwin"
+pyobjc-framework-Quartz; sys_platform == "darwin"

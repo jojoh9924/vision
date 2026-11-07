@@ -1,238 +1,77 @@
-import cv2
-import mediapipe as mp
-import numpy as np
-import pyautogui
-import autopy
-import time
-import speech_recognition as sr
-from AppKit import NSApplication, NSScreen
-from magnifier import ScreenMagnifier
+import argparse
+import sys
 
-CAMERA_WINDOW = "Gesture Recognition"
+from app.controller import Controller
+from app.detector import ensure_model
 
-class GestureRecognizer:
-    def __init__(self, activeMode=False, maxHands=1, detectionConfidence=False, trackingConfidence=0.5):
-        self.activeMode = activeMode
-        self.maxHands = maxHands
-        self.detectionConfidence = detectionConfidence
-        self.trackingConfidence = trackingConfidence
+MAGNIFIER_MS = 33
 
-        self.mediaPipeHands = mp.solutions.hands
-        self.handProcessor = self.mediaPipeHands.Hands(self.activeMode, self.maxHands, self.detectionConfidence, self.trackingConfidence)
-        self.mediaPipeDrawing = mp.solutions.drawing_utils
-        self.fingerTipIndices = [4, 8, 12, 16, 20]
 
-    def detectHands(self, frame, draw=True):
-        frameRGB = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        self.processResults = self.handProcessor.process(frameRGB)
+def start_magnifier(root):
+    """macOS only: the zoom box from magnifier.py follows the pointer. Silently skipped elsewhere."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        from magnifier import ScreenMagnifier
+        magnifier = ScreenMagnifier()
+    except Exception as e:
+        print(f"Magnifier unavailable: {e}", file=sys.stderr)
+        return None
 
-        if self.processResults.multi_hand_landmarks:
-            for handLandmarks in self.processResults.multi_hand_landmarks:
-                if draw:
-                    self.mediaPipeDrawing.draw_landmarks(frame, handLandmarks, self.mediaPipeHands.HAND_CONNECTIONS)
-        return frame
+    def tick():
+        magnifier.update()
+        root.after(MAGNIFIER_MS, tick)
 
-    def getPositions(self, frame, handIndex=0, draw=True):   
-        coordXList, coordYList, boundingBox, self.landmarkList  = [], [], [], []
-
-        if self.processResults.multi_hand_landmarks:
-            selectedHand = self.processResults.multi_hand_landmarks[handIndex]
-            
-            for idx, landmark in enumerate(selectedHand.landmark):
-                height, width, _ = frame.shape
-                coordX, coordY = int(landmark.x * width), int(landmark.y * height)
-                coordXList.append(coordX)
-                coordYList.append(coordY)
-                self.landmarkList.append([idx, coordX, coordY])
-                if draw:
-                    cv2.circle(frame, (coordX, coordY), 5, (255, 0, 255), cv2.FILLED)
-
-            xMin, xMax = min(coordXList), max(coordXList)
-            yMin, yMax = min(coordYList), max(coordYList)
-            boundingBox = xMin, yMin, xMax, yMax
-
-            if draw:
-                cv2.rectangle(frame, (xMin - 20, yMin - 20), (xMax + 20, yMax + 20),
-                              (0, 255, 0), 2)
-
-        return self.landmarkList, boundingBox
-
-    def fingersRaised(self):
-        fingers = []
-
-        if self.landmarkList[self.fingerTipIndices[0]][1] > self.landmarkList[self.fingerTipIndices[0] - 1][1]:
-            fingers.append(1)
-        else:
-            fingers.append(0)
-
-        for i in range(1, 5):
-            if self.landmarkList[self.fingerTipIndices[i]][2] < self.landmarkList[self.fingerTipIndices[i] - 2][2]:
-                fingers.append(1)
-            else:
-                fingers.append(0)
-
-        return fingers
-
-def pin_camera_window():
-    screens = NSScreen.screens()
-    if not screens:
-        return
-    visible = screens[0].visibleFrame()
-    for window in NSApplication.sharedApplication().windows():
-        if window.title() != CAMERA_WINDOW:
-            continue
-        window.setMovable_(False)
-        window.setFrameOrigin_((visible.origin.x, visible.origin.y))
-        return
+    root.after(MAGNIFIER_MS, tick)
+    return magnifier
 
 
 def main():
-    w = 640
-    h = 480
-    display_w, display_h = w // 2, h // 2
-    frameR = 100
-    smooth = 8
-    prev_x, prev_y = 0, 0
-    curr_x, curr_y = 0, 0
-    prev_time = 0
-    stab_buf = []
-    stab_thresh = 10
-    stab_rad = 10
-    scroll_down_speed = -60
-    scroll_up_speed = 60
-    interval = 0.01 # interval (in seconds) between keystrokes when typing.
-    timeout = 5 # duration (in seconds) that the speech recognizer waits for the speaker to start talking before it times out.
-    phrase_time_limit = 10 # duration (in seconds) for capturing speech after it has started, regardless of any pauses or breaks in speaking.
-    
-    r = sr.Recognizer()
-    m = sr.Microphone()
+    parser = argparse.ArgumentParser(description="Hand-gesture mouse with remappable gestures")
+    parser.add_argument("--camera", type=int, default=0, help="camera index (default 0)")
+    parser.add_argument("--no-tray", action="store_true", help="do not show a system tray icon")
+    parser.add_argument("--no-magnifier", action="store_true", help="macOS: do not show the zoom box")
+    args = parser.parse_args()
 
-    def speech_to_text():
-        with m as source:
-            r.adjust_for_ambient_noise(source)
-            try:
-                audio = r.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
-                return r.recognize_google(audio)
-            except (sr.UnknownValueError, sr.RequestError, sr.WaitTimeoutError):
-                return ''
+    ensure_model()
+    controller = Controller(camera_index=args.camera)
 
-    cap = cv2.VideoCapture(0)
-    cap.set(3, w)
-    cap.set(4, h)
-    cap.set(cv2.CAP_PROP_FPS, 60)
+    from app.ui.camera_window import CameraWindow
+    from app.ui.pane import Pane
 
-    detector = GestureRecognizer()               
-    scr_w, scr_h = autopy.screen.size()
+    pane = Pane(controller)
+    camera = CameraWindow(pane, controller)
+    pane.bind("<<ShowCamera>>", lambda e: camera.show())
+    magnifier = None if args.no_magnifier else start_magnifier(pane)
 
-    hold = False
-    magnifier = None
+    tray = None
 
+    def quit_app():
+        if tray:
+            tray.stop()
+        controller.stop()
+        pane.destroy()
+
+    if not args.no_tray:
+        try:
+            from app.ui.tray import Tray
+            tray = Tray(pane, controller, pane.deiconify, camera.show, quit_app)
+            tray.start()
+        except Exception as e:  # tray is optional
+            print(f"Tray icon unavailable: {e}", file=sys.stderr)
+    else:
+        pane.protocol("WM_DELETE_WINDOW", quit_app)
+
+    controller.start()
     try:
-        magnifier = ScreenMagnifier()
-        cv2.namedWindow(CAMERA_WINDOW, cv2.WINDOW_AUTOSIZE)
-        while True:
-            _, img = cap.read()
-            if img is None or img.size == 0:
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
-                continue
-            img = detector.detectHands(img)
-            lmList, _ = detector.getPositions(img)
-
-            if len(lmList) != 0:
-                x1, y1 = lmList[8][1:]
-                fingers = detector.fingersRaised()
-                cv2.rectangle(img, (frameR, frameR), (w - frameR, h - frameR), (255, 0, 255), 2)
-
-                if fingers[1] == 1 and fingers[2] == 0:
-                    x3 = np.interp(x1, (frameR, w - frameR), (0, scr_w))
-                    y3 = np.interp(y1, (frameR, h - frameR), (0, scr_h))
-
-                    curr_x = prev_x + (x3 - prev_x) / smooth
-                    curr_y = prev_y + (y3 - prev_y) / smooth
-
-                    autopy.mouse.move(scr_w - curr_x, curr_y)
-                    cv2.circle(img, (x1, y1), 7, (255, 0, 255), cv2.FILLED)
-                    prev_x, prev_y = curr_x, curr_y
-
-                    stab_buf.append((curr_x, curr_y))
-                    if len(stab_buf) > stab_thresh:
-                        stab_buf.pop(0)
-
-                # Single left click
-                if fingers[1] == 1 and fingers[2] == 1:
-                    if len(stab_buf) == stab_thresh and all(
-                        np.linalg.norm(np.array(pos) - np.array(stab_buf[0])) < stab_rad
-                        for pos in stab_buf
-                    ):
-                        cv2.circle(img, (x1, y1), 15, (0, 255, 0), cv2.FILLED)
-                        autopy.mouse.click()
-                        stab_buf.clear()
-
-                # Double left click
-                if fingers[1] == 1 and fingers[4] == 1 and all(f == 0 for f in [fingers[0], fingers[2], fingers[3]]):
-                    autopy.mouse.click()
-                    autopy.mouse.click()
-
-                # Single right click
-                if fingers[0] == 1 and all(f == 0 for f in fingers[1:]):
-                    if len(stab_buf) == stab_thresh and all(
-                        np.linalg.norm(np.array(pos) - np.array(stab_buf[0])) < stab_rad
-                        for pos in stab_buf
-                    ):
-                        cv2.circle(img, (x1, y1), 15, (0, 255, 0), cv2.FILLED)
-                        autopy.mouse.click(autopy.mouse.Button.RIGHT)
-                        stab_buf.clear()
-
-                # Hold left click and move
-                if fingers[0] == 0 and all(f == 1 for f in fingers[1:]):
-                    if not hold:
-                        autopy.mouse.toggle(down=True)
-                        hold = True
-
-                    x3 = np.interp(x1, (frameR, w - frameR), (0, scr_w))
-                    y3 = np.interp(y1, (frameR, h - frameR), (0, scr_h))
-                    curr_x = prev_x + (x3 - prev_x) / smooth
-                    curr_y = prev_y + (y3 - prev_y) / smooth
-                    autopy.mouse.move(scr_w - curr_x, curr_y)
-                    cv2.circle(img, (x1, y1), 7, (255, 0, 255), cv2.FILLED)
-                    prev_x, prev_y = curr_x, curr_y
-                else:
-                    if hold:
-                        autopy.mouse.toggle(down=False)
-                        hold = False
-
-                # Scroll down
-                if all(f == 0 for f in fingers):
-                    pyautogui.scroll(scroll_down_speed)
-
-                # Scroll up
-                if all(f == 1 for f in fingers):
-                    pyautogui.scroll(scroll_up_speed)
-
-                # Speech to text
-                if fingers[2] == 1 and all(f == 0 for f in [fingers[0], fingers[1], fingers[3], fingers[4]]):
-                    text = speech_to_text()
-                    if text:
-                        pyautogui.write(text, interval=interval)
-
-            curr_time = time.time()
-            fps = 1 / (curr_time - prev_time)
-            prev_time = curr_time
-            cv2.putText(img, str(int(fps)), (20, 50), cv2.FONT_HERSHEY_PLAIN, 3, (0, 0, 0), 3)
-            preview = cv2.resize(img, (display_w, display_h), interpolation=cv2.INTER_AREA)
-            cv2.imshow(CAMERA_WINDOW, preview)
-            magnifier.update()
-            key = cv2.waitKey(1) & 0xFF
-            pin_camera_window()
-
-            if key == ord('q'):
-                break
+        pane.mainloop()
     finally:
-        cap.release()
-        cv2.destroyAllWindows()
-        if magnifier is not None:
+        if tray:
+            tray.stop()
+        if magnifier:
             magnifier.close()
+        controller.stop()
+
 
 if __name__ == "__main__":
     main()
