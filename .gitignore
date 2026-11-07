@@ -1,7 +1,10 @@
 .venv/
+.venv310/
 __pycache__/
 *.pyc
 assets/
 profiles/images/
 settings.json
 .pytest_cache/
+/cursor_stabilization/data/
+/cursor_stabilization/models/

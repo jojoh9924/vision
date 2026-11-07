@@ -1,5 +1,5 @@
 import objc
-import autopy
+import pyautogui
 from AppKit import (
     NSApplication,
     NSBackingStoreBuffered,
@@ -116,8 +116,8 @@ class ScreenMagnifier:
         if self._closed:
             return
 
-        x, y = autopy.mouse.location()
-        # CGWindowListCreateImage is top-left, y downward — the same space as autopy.
+        x, y = pyautogui.position()
+        # CGWindowListCreateImage is top-left, y downward — the same space as pyautogui.
         cgimage = CGWindowListCreateImage(
             CGRectMake(x - self.src_w / 2.0, y - self.src_h / 2.0, self.src_w, self.src_h),
             kCGWindowListOptionOnScreenBelowWindow,

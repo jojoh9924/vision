@@ -63,6 +63,9 @@ class Worker(threading.Thread):
                 with self.engine_lock:
                     self.engine.update(f, now)
                     active, candidate = self.engine.active, self.engine.candidate
+                    cursor_label = self.engine.cursor_label
+                    cursor_score = self.engine.cursor_score
+                    adaptive_enabled = self.engine.adaptive.enabled
                     toggle = self.engine.toggle_requested
                     self.engine.toggle_requested = False
                 if toggle and self.on_toggle:
@@ -78,7 +81,8 @@ class Worker(threading.Thread):
                 fps = 1.0 / max(now - prev, 1e-6)
                 prev = now
                 self._publish(frame=frame, raw_frame=raw, features=f, active=active,
-                              candidate=candidate, fps=fps, error=None)
+                              candidate=candidate, fps=fps, error=None, cursor_label=cursor_label,
+                              cursor_score=cursor_score, adaptive_enabled=adaptive_enabled)
         finally:
             with self.engine_lock:
                 self.engine.release()

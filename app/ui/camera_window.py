@@ -22,8 +22,13 @@ class CameraWindow(tk.Toplevel):
         self.protocol("WM_DELETE_WINDOW", self.withdraw)
         self.label = tk.Label(self, bg="black", width=VIEW_W, height=VIEW_H)
         self.label.pack()
+        self.bind("a", self._toggle_adaptive)
         self._photo = None
         self.after(POLL_MS, self._poll)
+
+    def _toggle_adaptive(self, event=None):
+        with self.c.worker.engine_lock:
+            self.c.engine.adaptive.enabled = not self.c.engine.adaptive.enabled
 
     def show(self):
         self.deiconify()
@@ -41,6 +46,12 @@ class CameraWindow(tk.Toplevel):
                 cv2.putText(frame, text, (8, VIEW_H - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
             if self.c.paused:
                 cv2.putText(frame, "PAUSED", (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            status = s.get('cursor_label', 'UNTRAINED')
+            adaptive = 'ON' if s.get('adaptive_enabled', False) else 'OFF'
+            cv2.putText(frame, f'{status} {s.get("cursor_score", 0):.2f}',
+                        (8, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
+            cv2.putText(frame, f'Adaptive {adaptive} (a)', (8, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             self._photo = ImageTk.PhotoImage(Image.fromarray(rgb))
             self.label.configure(image=self._photo)

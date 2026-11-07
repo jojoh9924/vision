@@ -8,8 +8,9 @@ pynput
 SpeechRecognition
 PyAudio
 pytest
+scikit-learn>=1.3,<1.8
+joblib>=1.3,<2
 
-# macOS only: screen magnifier (magnifier.py)
-autopy; sys_platform == "darwin"
+# macOS only: screen magnifier
 pyobjc-framework-Cocoa; sys_platform == "darwin"
 pyobjc-framework-Quartz; sys_platform == "darwin"

@@ -1,5 +1,9 @@
 """Per-frame state machine: features -> matched mapping -> hold -> fire/hold/release."""
 
+from cursor_stabilization import OneEuroFilter
+from cursor_stabilization.cursor_state import CursorState
+from cursor_stabilization.adaptive_smoothing import AdaptiveSmoothing
+
 from .actions import ACTIONS, BUTTON, CONTINUOUS, ONESHOT, SCROLL_STEP, TOGGLE_ACTION, Backend
 from .features import HandFeatures
 from .profiles import Mapping, Profile
@@ -21,6 +25,10 @@ class Engine:
         self.margin = margin
         self.smooth = smooth
         self.screen_w, self.screen_h = backend.screen_size()
+        self.cursor_state = CursorState()
+        self.cursor_label, self.cursor_score = 'UNTRAINED', 0.0
+        self.filter_x, self.filter_y = OneEuroFilter(), OneEuroFilter()
+        self.adaptive = AdaptiveSmoothing(self.filter_x, self.filter_y)
 
         self.profile: Profile | None = None
         self._ordered: list[Mapping] = []
@@ -68,6 +76,9 @@ class Engine:
         if self.suspended:
             return
         if features is None:
+            self.cursor_state.reset()
+            self.cursor_label, self.cursor_score = 'NO HAND', 0.0
+            self.adaptive.update('NO HAND', now)
             if self.candidate and now - self._last_seen > LOST_TIMEOUT:
                 self.release()
             return
@@ -83,6 +94,8 @@ class Engine:
             self.candidate = match
             self._candidate_since = now
         if match is None:
+            self.cursor_label, self.cursor_score = 'INACTIVE', 0.0
+            self.adaptive.update('INACTIVE', now)
             return
 
         if self.active is None and (now - self._candidate_since) * 1000 >= match.hold_ms:
@@ -91,6 +104,8 @@ class Engine:
             self._run(self.active, features)
 
     def release(self):
+        self.cursor_state.reset()
+        self.cursor_label, self.cursor_score = 'INACTIVE', 0.0
         if self._button_down:
             self.backend.mouse_up()
             self._button_down = False
@@ -127,10 +142,19 @@ class Engine:
     def _run(self, m: Mapping, f: HandFeatures):
         action = ACTIONS[m.action]
         if action.moves_cursor:
+            # Use the same raw index-tip mapping as the training recorder.
+            tx, ty = self._to_screen(tuple(int(v) for v in f.pointer))
+            self.cursor_label, self.cursor_score = self.cursor_state.update(
+                self._last_seen, 1.0 - tx / self.screen_w, ty / self.screen_h)
+            self.adaptive.update(self.cursor_label, self._last_seen)
             if self._button_down:
                 self._drag_cursor(f)
             else:
                 self._point_cursor(f, self._last_seen)
+        if not action.moves_cursor:
+            self.cursor_state.reset()
+            self.cursor_label, self.cursor_score = 'INACTIVE', 0.0
+            self.adaptive.update('INACTIVE', self._last_seen)
         if action.kind == CONTINUOUS:
             if m.action == "scroll_up":
                 self.backend.scroll(SCROLL_STEP)
@@ -190,8 +214,8 @@ class Engine:
 
     def _glide_to(self, target):
         tx, ty = target
-        x = self._prev_x + (tx - self._prev_x) / self.smooth
-        y = self._prev_y + (ty - self._prev_y) / self.smooth
+        x = self.filter_x.update(tx, self._last_seen)
+        y = self.filter_y.update(ty, self._last_seen)
         self._prev_x, self._prev_y = x, y
         # camera is mirrored relative to the user, so flip x
         sx = min(max(self.screen_w - x, 0), self.screen_w - 1)

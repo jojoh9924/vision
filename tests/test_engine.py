@@ -191,3 +191,27 @@ def test_suspended_engine_does_nothing_and_releases_buttons():
     e.set_suspended(False)
     e.update(feat("11111", pinch="index"), 3.5)
     assert b.events == ["down", "up", "down"]
+
+
+def test_classifier_adjusts_filter_without_replacing_gesture_logic():
+    class MovingClassifier:
+        def reset(self):
+            pass
+
+        def update(self, now, x, y):
+            assert 0 <= x <= 1 and 0 <= y <= 1
+            return 'MOVING', 0.95
+
+    e, b = make_engine()
+    e.cursor_state = MovingClassifier()
+    e.update(feat('01000', center=(200, 240)), 0.0)
+    e.update(feat('01000', center=(250, 240)), 0.1)
+    assert e.cursor_label == 'MOVING'
+    assert e.filter_x.min_cutoff > 1.0
+    assert e.filter_x.min_cutoff == e.filter_y.min_cutoff
+    assert b.pos is not None
+    e.adaptive.enabled = False
+    e.update(feat('01000', center=(300, 240)), 0.2)
+    assert e.filter_x.min_cutoff == 1.0 and e.filter_x.beta == 0.005
+    e.update(None, 0.3)
+    assert e.cursor_label == 'NO HAND'

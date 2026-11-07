@@ -61,3 +61,15 @@ Profiles are JSON files in `profiles/`. Use the **Profile** menu in the pane to 
 ```
 .venv\Scripts\python -m pytest tests
 ```
+
+## Cursor stabilization
+
+Cursor movement uses One Euro filtering. If a locally trained classifier is
+available, STATIONARY / PRECISION / MOVING predictions gradually adjust the
+filter settings. Press **a** with the camera window focused to toggle adaptive
+smoothing. Existing hover locking and pinch/drag protections still apply.
+
+Recordings, trained models, and virtual environments are intentionally excluded
+from Git. A fresh checkout runs baseline One Euro filtering and displays
+UNTRAINED until a model is trained locally. See
+[cursor stabilization setup and training](cursor_stabilization/README.md).
