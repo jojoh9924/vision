@@ -34,7 +34,11 @@ ACTIONS: dict[str, Action] = {a.id: a for a in [
     Action("scroll_up", "Scroll up", CONTINUOUS),
     Action("scroll_down", "Scroll down", CONTINUOUS),
     Action("speech_to_text", "Dictate", ONESHOT, default_hold_ms=1000, hint="speak, text is typed"),
+    Action("toggle_gestures", "Pause / resume gestures", ONESHOT, default_hold_ms=1500,
+           hint="works while paused too"),
 ]}
+
+TOGGLE_ACTION = "toggle_gestures"
 
 
 class Backend:

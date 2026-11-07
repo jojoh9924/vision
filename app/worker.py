@@ -11,9 +11,10 @@ from .engine import Engine
 
 
 class Worker(threading.Thread):
-    def __init__(self, engine: Engine, camera_index=0, frame_size=(640, 480)):
+    def __init__(self, engine: Engine, camera_index=0, frame_size=(640, 480), on_toggle=None):
         super().__init__(daemon=True, name="gesture-worker")
         self.engine = engine
+        self.on_toggle = on_toggle
         self.engine_lock = threading.Lock()   # UI holds this when reconfiguring the engine
         self.camera_index = camera_index
         self.frame_w, self.frame_h = frame_size
@@ -62,6 +63,10 @@ class Worker(threading.Thread):
                 with self.engine_lock:
                     self.engine.update(f, now)
                     active, candidate = self.engine.active, self.engine.candidate
+                    toggle = self.engine.toggle_requested
+                    self.engine.toggle_requested = False
+                if toggle and self.on_toggle:
+                    self.on_toggle()
 
                 cv2.rectangle(frame, (margin, margin), (self.frame_w - margin, self.frame_h - margin),
                               (255, 0, 255), 1)

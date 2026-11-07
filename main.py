@@ -35,6 +35,7 @@ def main():
 
     ensure_model()
     controller = Controller(camera_index=args.camera)
+    controller.start_hotkey()
 
     from app.ui.camera_window import CameraWindow
     from app.ui.pane import Pane

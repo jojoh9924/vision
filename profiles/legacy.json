@@ -81,6 +81,16 @@
       },
       "hold_ms": 500,
       "image": null
+    },
+    {
+      "action": "toggle_gestures",
+      "gesture": {
+        "fingers": "10001",
+        "pinch": null,
+        "orientation": "any"
+      },
+      "hold_ms": 1500,
+      "image": null
     }
   ]
 }

@@ -1,6 +1,6 @@
 """Per-frame state machine: features -> matched mapping -> hold -> fire/hold/release."""
 
-from .actions import ACTIONS, BUTTON, CONTINUOUS, ONESHOT, SCROLL_STEP, Backend
+from .actions import ACTIONS, BUTTON, CONTINUOUS, ONESHOT, SCROLL_STEP, TOGGLE_ACTION, Backend
 from .features import HandFeatures
 from .profiles import Mapping, Profile
 
@@ -25,6 +25,8 @@ class Engine:
         self.profile: Profile | None = None
         self._ordered: list[Mapping] = []
         self.paused = False
+        self.suspended = False          # True while the editor is recording a pose: nothing fires
+        self.toggle_requested = False   # set when the toggle gesture fires; the worker acts on it
 
         self.candidate: Mapping | None = None
         self.active: Mapping | None = None
@@ -56,9 +58,14 @@ class Engine:
         if paused:
             self.release()
 
+    def set_suspended(self, suspended: bool):
+        self.suspended = suspended
+        if suspended:
+            self.release()
+
     # per frame
     def update(self, features: HandFeatures | None, now: float):
-        if self.paused:
+        if self.suspended:
             return
         if features is None:
             if self.candidate and now - self._last_seen > LOST_TIMEOUT:
@@ -66,7 +73,10 @@ class Engine:
             return
         self._last_seen = now
 
-        match = next((m for m in self._ordered if m.gesture.matches(features)), None)
+        candidates = self._ordered
+        if self.paused:
+            candidates = [m for m in candidates if m.action == TOGGLE_ACTION]
+        match = next((m for m in candidates if m.gesture.matches(features)), None)
 
         if match is not self.candidate:
             self.release()
@@ -111,6 +121,8 @@ class Engine:
             b.double_click()
         elif action_id == "speech_to_text":
             b.dictate()
+        elif action_id == TOGGLE_ACTION:
+            self.toggle_requested = True
 
     def _run(self, m: Mapping, f: HandFeatures):
         action = ACTIONS[m.action]

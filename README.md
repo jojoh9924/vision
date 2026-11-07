@@ -19,6 +19,16 @@ Options: `--camera N` to pick a webcam, `--no-tray` to skip the system tray icon
 - **Gesture pane** (right side, always on top): a picture of each gesture next to the action it triggers. The row lights up green while its action is active, yellow while a gesture is being held before it fires.
 - **Tray icon**: right-click to switch profiles, pause or resume gestures, reopen the windows, or quit.
 
+## Turning gesture control on and off
+
+Three ways, all equivalent:
+
+- the big green/red button at the top of the pane,
+- the global hotkey **Ctrl+Alt+G**, which works in any application,
+- the **Pause / resume gestures** action, a gesture that keeps working while everything else is paused (default: thumb + pinky held 1.5 s). It is remappable like any other action.
+
+While paused the camera window shows PAUSED and no gesture moves the mouse.
+
 ## Default gestures
 
 | Action | Gesture |
@@ -30,6 +40,7 @@ Options: `--camera N` to pick a webcam, `--no-tray` to skip the system tray icon
 | Scroll up | Index + middle, pointing up |
 | Scroll down | Index + middle, pointing down |
 | Dictate | Open hand, held 1 second |
+| Pause / resume gestures | Thumb + pinky, held 1.5 seconds |
 
 Two more bundled profiles: **Low dexterity** (no pinches or quick taps, longer holds) and **Legacy** (the original Archand mapping).
 

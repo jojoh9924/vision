@@ -4,6 +4,7 @@ numpy
 pyautogui
 Pillow
 pystray
+pynput
 SpeechRecognition
 PyAudio
 pytest

@@ -1,9 +1,15 @@
 """Owns the profile store, engine and worker; the UI talks to this and listens for changes."""
 
+import sys
+
 from .actions import PyAutoGuiBackend
 from .engine import Engine
 from .profiles import ROOT, Mapping, Profile, ProfileStore
 from .worker import Worker
+
+
+HOTKEY = "<ctrl>+<alt>+g"
+HOTKEY_LABEL = "Ctrl+Alt+G"
 
 
 class Controller:
@@ -13,9 +19,12 @@ class Controller:
         self.profiles: list[Profile] = self.store.load_all()
         self.backend = PyAutoGuiBackend()
         self.engine = Engine(self.backend, frame_size=frame_size)
-        self.worker = Worker(self.engine, camera_index, frame_size)
+        self.worker = Worker(self.engine, camera_index, frame_size, on_toggle=self.toggle_paused)
         self.paused = False
         self._listeners = []
+        # UI sets this to hop listener calls onto its thread (e.g. tk's after)
+        self.dispatch = lambda fn: fn()
+        self._hotkey = None
 
         pid = self.store.active_profile_id()
         self.profile = next((p for p in self.profiles if p.id == pid), self.profiles[0])
@@ -26,6 +35,8 @@ class Controller:
         self.worker.start()
 
     def stop(self):
+        if self._hotkey:
+            self._hotkey.stop()
         self.worker.stop()
         self.worker.join(timeout=2)
         with self.worker.engine_lock:
@@ -36,8 +47,22 @@ class Controller:
         self._listeners.append(fn)
 
     def _notify(self, event):
-        for fn in list(self._listeners):
-            fn(event)
+        def run():
+            for fn in list(self._listeners):
+                fn(event)
+        self.dispatch(run)
+
+    # global hotkey
+    def start_hotkey(self, combo: str = HOTKEY) -> bool:
+        try:
+            from pynput import keyboard
+            self._hotkey = keyboard.GlobalHotKeys({combo: self.toggle_paused})
+            self._hotkey.daemon = True
+            self._hotkey.start()
+            return True
+        except Exception as e:
+            print(f"Global hotkey unavailable: {e}", file=sys.stderr)
+            return False
 
     # profiles
     def reload_profiles(self):
@@ -120,3 +145,8 @@ class Controller:
 
     def toggle_paused(self):
         self.set_paused(not self.paused)
+
+    def suspend(self, suspended: bool):
+        """Stop all gesture actions temporarily (while recording a pose)."""
+        with self.worker.engine_lock:
+            self.engine.set_suspended(suspended)

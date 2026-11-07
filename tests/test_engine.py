@@ -159,3 +159,35 @@ def test_hover_lock_ignores_small_drift_until_clear_move():
     assert b.pos == locked
     e.update(feat("01000", center=(380, 240)), 0.5)   # clear move: follows again
     assert b.pos != locked
+
+
+def test_toggle_gesture_fires_even_while_paused_and_only_that():
+    e, b = make_engine()
+    e.set_paused(True)
+    # a normal gesture does nothing while paused
+    e.update(feat("11111", pinch="index"), 0.0)
+    e.update(feat("11111", pinch="index"), 0.5)
+    assert b.events == [] and not e.toggle_requested
+    # the toggle gesture (thumb + pinky, 1.5 s) still works
+    e.update(feat("10001"), 1.0)
+    e.update(feat("10001"), 2.0)
+    assert not e.toggle_requested
+    e.update(feat("10001"), 2.6)
+    assert e.toggle_requested
+    e.toggle_requested = False
+    e.update(feat("10001"), 5.0)      # latched: no repeat while held
+    assert not e.toggle_requested
+
+
+def test_suspended_engine_does_nothing_and_releases_buttons():
+    e, b = make_engine()
+    e.update(feat("11111", pinch="index"), 0.0)
+    e.set_suspended(True)
+    assert b.events == ["down", "up"]
+    e.update(feat("11111", pinch="index"), 0.5)
+    e.update(feat("10001"), 1.0)
+    e.update(feat("10001"), 3.0)
+    assert b.events == ["down", "up"] and not e.toggle_requested
+    e.set_suspended(False)
+    e.update(feat("11111", pinch="index"), 3.5)
+    assert b.events == ["down", "up", "down"]

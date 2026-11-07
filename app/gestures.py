@@ -55,7 +55,7 @@ class Gesture:
             elif up and len(down) == 5 - len(up):
                 parts.append(" + ".join(up).capitalize() + (" only" if len(up) == 1 else ""))
             elif up and self.fingers[0] == "*" and "*" not in self.fingers[1:]:
-                parts.append(" + ".join(up).capitalize() + " (thumb either way)")
+                parts.append(" + ".join(up).capitalize() + " (any thumb)")
             elif up:
                 parts.append(" + ".join(up).capitalize() + " up")
             else:
@@ -74,10 +74,10 @@ class Gesture:
 
 # Named presets offered in the editor's picker.
 PRESET_GESTURES: list[tuple[str, Gesture]] = [
-    ("Index up (thumb either way)", Gesture("*1000")),
-    ("Index + middle (thumb either way)", Gesture("*1100")),
-    ("Index + middle up (thumb either way)", Gesture("*1100", None, "up")),
-    ("Index + middle down (thumb either way)", Gesture("*1100", None, "down")),
+    ("Index up (any thumb)", Gesture("*1000")),
+    ("Index + middle (any thumb)", Gesture("*1100")),
+    ("Index + middle, pointing up (any thumb)", Gesture("*1100", None, "up")),
+    ("Index + middle, pointing down (any thumb)", Gesture("*1100", None, "down")),
     ("Index only", Gesture("01000")),
     ("Thumb only", Gesture("10000")),
     ("Pinky only", Gesture("00001")),
