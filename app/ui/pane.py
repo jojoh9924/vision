@@ -45,7 +45,7 @@ class Pane(tk.Tk):
         self.icon = int(ICON * self.scale)
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{self.width}x{sh - int(90 * self.scale)}+{sw - self.width - int(10 * self.scale)}+0")
-        self.minsize(self.width, 400)
+        self.minsize(self.width, 120)
         self.protocol("WM_DELETE_WINDOW", self.withdraw)
         self._app_icon = ImageTk.PhotoImage(tray_image(64))
         self.iconphoto(True, self._app_icon)
@@ -53,6 +53,7 @@ class Pane(tk.Tk):
         self._rows: dict[str, dict] = {}
         self._photos: list = []
         self._show_unassigned = False   # unassigned actions stay tucked away until asked for
+        self._actions_visible = bool(controller.store.get_setting("actions_visible", True))
         self._style()
         self._build()
         self.refresh_rows()
@@ -106,36 +107,32 @@ class Pane(tk.Tk):
 
     # layout
     def _build(self):
-        head = tk.Frame(self, bg=BG)
-        head.pack(fill="x", padx=self._pad(14), pady=(self._pad(12), 0))
-        tk.Label(head, text="Gestures", bg=BG, fg=TEXT, anchor="w", font=(FONT, 14, "bold")).pack(side="left")
-        self.fps_label = tk.Label(head, text="", bg=BG, fg=FAINT, font=(FONT, 8))
-        self.fps_label.pack(side="right", anchor="s", pady=(0, 3))
-
         # switches card
         card = self._card(self)
-        card.pack(fill="x", padx=self._pad(12), pady=(self._pad(10), 0))
+        card.pack(fill="x", padx=self._pad(12), pady=(self._pad(12), 0))
+        self.switch_card = card
         self.sw_gestures = self._switch_row(card.inner, "Gesture control", self.c.toggle_paused, first=True)
         self.sw_camera = self._switch_row(card.inner, "Camera view", self.c.toggle_camera)
         self.sw_magnifier = self._switch_row(card.inner, "Magnifier", self.c.toggle_magnifier)
-        self.toggle_hint = tk.Label(self, text="", bg=BG, fg=MUTED, anchor="w", justify="left",
-                                    font=(FONT, 8), wraplength=self.width - self._pad(28))
-        self.toggle_hint.pack(fill="x", padx=self._pad(14), pady=(self._pad(5), 0))
+
+        # bottom strip of the card: a chevron handle that folds the action list away
+        tk.Frame(card.inner, bg=BORDER, height=1).pack(fill="x", padx=self._pad(12))
+        self.actions_chevron = ChevronBar(card.inner, self.scale, command=self._toggle_actions)
+        self.actions_chevron.pack(fill="x")
 
         self.status = tk.Label(self, text="", bg=BG, fg=RED, font=(FONT, 8), anchor="w",
                                wraplength=self.width - self._pad(28), justify="left")
         self.status.pack(fill="x", padx=self._pad(14))
 
         # footer (packed before the list so the list takes the remaining space)
-        foot = tk.Frame(self, bg=BG)
-        foot.pack(side="bottom", fill="x", padx=self._pad(10), pady=(self._pad(4), self._pad(8)))
-        ttk.Button(foot, text="Reset to defaults", style="Link.TButton",
+        self.foot = tk.Frame(self, bg=BG)
+        self.foot.pack(side="bottom", fill="x", padx=self._pad(10), pady=(self._pad(4), self._pad(8)))
+        ttk.Button(self.foot, text="Reset to defaults", style="Link.TButton",
                    command=self._reset_defaults).pack(side="right")
 
-        # actions
-        self._section(self, "Actions  ·  click to edit")
         body = tk.Frame(self, bg=BG)
-        body.pack(fill="both", expand=True)
+        self.body = body
+        body.pack(fill="both", expand=True, pady=(self._pad(8), 0))
         self.bar = ttk.Scrollbar(body, orient="vertical", style="Pane.Vertical.TScrollbar")
         self.bar.pack(side="right", fill="y", padx=(0, self._pad(4)))
         self.canvas = tk.Canvas(body, bg=BG, highlightthickness=0, yscrollcommand=self.bar.set)
@@ -146,6 +143,27 @@ class Pane(tk.Tk):
         self.rows_frame.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
         self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self._rows_window, width=e.width))
         self.bind_all("<MouseWheel>", self._on_wheel)
+        self._apply_actions_visibility()
+
+    def _toggle_actions(self):
+        self._actions_visible = not self._actions_visible
+        self.c.store.set_setting("actions_visible", self._actions_visible)
+        self._apply_actions_visibility()
+
+    def _apply_actions_visibility(self):
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        x = sw - self.width - int(10 * self.scale)
+        if self._actions_visible:
+            self.actions_chevron.set_up(True)     # points up: click to hide the list
+            self.body.pack(fill="both", expand=True, after=self.switch_card, pady=(self._pad(8), 0))
+            self.foot.pack(side="bottom", fill="x", padx=self._pad(10), pady=(self._pad(4), self._pad(8)))
+            self.geometry(f"{self.width}x{sh - int(90 * self.scale)}+{x}+0")
+        else:
+            self.actions_chevron.set_up(False)    # points down: click to show the list
+            self.body.pack_forget()
+            self.foot.pack_forget()
+            self.update_idletasks()
+            self.geometry(f"{self.width}x{self.winfo_reqheight()}+{x}+0")
 
     def _on_wheel(self, e):
         self.canvas.yview_scroll(-int(e.delta / 120), "units")
@@ -218,13 +236,6 @@ class Pane(tk.Tk):
         self.sw_gestures.set(not self.c.paused)
         self.sw_camera.set(self.c.camera_visible)
         self.sw_magnifier.set(self.c.magnifier_on)
-        hint = f"Gesture control: {HOTKEY_LABEL}"
-        toggle = self.c.profile.mapping_for(TOGGLE_ACTION)
-        if toggle:
-            hint += f", or hold {toggle.gesture.describe().lower()}"
-        if self.c.paused:
-            hint = "Gestures are off.  " + hint
-        self.toggle_hint.configure(text=hint, fg=RED if self.c.paused else MUTED)
 
     # user actions
     def _edit(self, action_id):
@@ -257,8 +268,44 @@ class Pane(tk.Tk):
             self.status.configure(text=s["error"])
         else:
             self.status.configure(text="")
-        self.fps_label.configure(text=f"{s['fps']:.0f} fps" if s["frame"] is not None else "")
         self.after(POLL_MS, self._poll)
+
+
+class ChevronBar(tk.Canvas):
+    """Full-width handle with a line-drawn chevron; click to fold/unfold."""
+
+    def __init__(self, master, scale=1.0, command=None, **kw):
+        self.h = int(26 * scale)
+        self.scale = scale
+        super().__init__(master, height=self.h, bg=CARD, highlightthickness=0, bd=0, cursor="hand2", **kw)
+        self.command = command
+        self.up = True
+        self.hover = False
+        self.bind("<Button-1>", lambda e: self.command and self.command())
+        self.bind("<Enter>", lambda e: self._set_hover(True))
+        self.bind("<Leave>", lambda e: self._set_hover(False))
+        self.bind("<Configure>", lambda e: self._draw())
+
+    def set_up(self, up: bool):
+        self.up = up
+        self._draw()
+
+    def _set_hover(self, on):
+        self.hover = on
+        self._draw()
+
+    def _draw(self):
+        self.delete("all")
+        w = self.winfo_width() or 200
+        self.configure(bg=TILE if self.hover else CARD)
+        cx, cy = w / 2, self.h / 2
+        half, rise = 7 * self.scale, 3.5 * self.scale
+        color = TEXT if self.hover else FAINT
+        if self.up:
+            pts = (cx - half, cy + rise, cx, cy - rise, cx + half, cy + rise)
+        else:
+            pts = (cx - half, cy - rise, cx, cy + rise, cx + half, cy - rise)
+        self.create_line(*pts, fill=color, width=max(2, int(2 * self.scale)), capstyle="round", joinstyle="round")
 
 
 class ToggleSwitch(tk.Canvas):
