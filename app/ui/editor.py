@@ -37,7 +37,6 @@ class MappingEditor(tk.Toplevel):
         self.title(self.action.label)
         self.resizable(False, False)
         self.attributes("-topmost", True)
-        self.transient(master)
         self.scale = getattr(master, "scale", 1.0)
 
         current = controller.profile.mapping_for(action_id)
@@ -52,7 +51,6 @@ class MappingEditor(tk.Toplevel):
         self._style()
         self._build(current)
         self._show_preview()
-        self.grab_set()
         self.update_idletasks()
         x = master.winfo_rootx() - self.winfo_reqwidth() - int(12 * self.scale)
         self.geometry(f"+{max(0, x)}+{master.winfo_rooty() + int(80 * self.scale)}")

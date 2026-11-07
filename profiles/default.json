@@ -43,16 +43,6 @@
       "image": null
     },
     {
-      "action": "scroll_up",
-      "gesture": {
-        "fingers": "*1100",
-        "pinch": null,
-        "orientation": "up"
-      },
-      "hold_ms": 120,
-      "image": null
-    },
-    {
       "action": "scroll_down",
       "gesture": {
         "fingers": "*1100",
@@ -70,6 +60,16 @@
         "orientation": "any"
       },
       "hold_ms": 1500,
+      "image": null
+    },
+    {
+      "action": "scroll_up",
+      "gesture": {
+        "fingers": "*1100",
+        "pinch": null,
+        "orientation": "up"
+      },
+      "hold_ms": 120,
       "image": null
     }
   ]

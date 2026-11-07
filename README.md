@@ -16,14 +16,15 @@ Options: `--camera N` to pick a webcam, `--no-tray` to skip the system tray icon
 ## What you see
 
 - **Camera window** (top-left, small): your mirrored webcam feed with the detected hand. The caption shows the gesture being recognised and the action it triggers.
-- **Gesture pane** (right side, always on top): a picture of each gesture next to the action it triggers. The row lights up green while its action is active, yellow while a gesture is being held before it fires.
-- **Tray icon**: right-click to switch profiles, pause or resume gestures, reopen the windows, or quit.
+- **Gesture pane** (right side, always on top): switches for gesture control, the camera view and the magnifier, then a picture of each gesture next to the action it triggers. A row lights up green while its action is active, amber while a gesture is being held before it fires.
+- **Magnifier**: a zoom box beside the pointer showing what is under it, for reading small targets. On macOS it uses the AppKit magnifier in `magnifier.py`; elsewhere a portable one.
+- **Tray icon**: right-click for the same switches, to reopen the pane, reset gestures, or quit.
 
 ## Turning gesture control on and off
 
 Three ways, all equivalent:
 
-- the big green/red button at the top of the pane,
+- the **Gesture control** switch at the top of the pane (also in the tray menu),
 - the global hotkey **Ctrl+Alt+G**, which works in any application,
 - the **Pause / resume gestures** action, a gesture that keeps working while everything else is paused (default: thumb + pinky held 1.5 s). It is remappable like any other action.
 
@@ -33,7 +34,7 @@ While paused the camera window shows PAUSED and no gesture moves the mouse.
 
 | Action | Gesture |
 |---|---|
-| Move pointer | Index finger up |
+| Move pointer | Index finger up (thumb either way) |
 | Left button | Pinch thumb + index. Tap to click, hold to drag, two taps to double click |
 | Right click | Pinch thumb + middle |
 | Double click | Pinch thumb + ring |
@@ -42,19 +43,19 @@ While paused the camera window shows PAUSED and no gesture moves the mouse.
 | Dictate | Open hand, held 1 second |
 | Pause / resume gestures | Thumb + pinky, held 1.5 seconds |
 
-Two more bundled profiles: **Low dexterity** (no pinches or quick taps, longer holds) and **Legacy** (the original Archand mapping).
+Left click and Drag exist as separate actions for people who cannot tap or hold a pinch; assign them a gesture if you need them.
 
 ## Customising gestures
 
 Click any row in the pane to change it:
 
 - pick a gesture from the list, or
-- press **Record** and hold your own pose for 2 seconds. A snapshot of your hand becomes that row's picture.
-- set how long the pose must be held before it fires (longer avoids accidental triggers).
+- press **Record my own pose**: gesture control pauses, a 3-second countdown lets you get your hand ready, then your pose is recorded for 4 seconds. A snapshot of your hand becomes that row's picture.
+- **Clear mapping** removes the gesture so the action does nothing.
 
 If the gesture is already used by another action you are asked whether to move it.
 
-Profiles are JSON files in `profiles/`. Use the **Profile** menu in the pane to make a copy, rename, delete, or restore the bundled ones. The active profile is remembered in `settings.json`.
+Your gesture set is saved in `profiles/default.json`. **Reset to defaults** (bottom of the pane, or the tray menu) restores the table above. Switch states are remembered in `settings.json`.
 
 ## Tests
 
