@@ -1,5 +1,6 @@
 """Action registry and the pyautogui / speech backend that performs them."""
 
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -9,8 +10,10 @@ CONTINUOUS, ONESHOT, BUTTON = "continuous", "oneshot", "button"
 SCROLL_STEP = 60
 SCROLL_INTERVAL = 0.1      # seconds between scroll steps while held
 TYPE_INTERVAL = 0.01       # seconds between keystrokes when typing dictated text
-SPEECH_TIMEOUT = 5         # seconds to wait for speech to start
-SPEECH_PHRASE_LIMIT = 10   # max seconds of speech captured
+WHISPER_MODEL = "base"     # local faster-whisper model; downloaded on first dictate
+LIVE_RATE = 16000
+LIVE_CHUNK_SECONDS = 1.2   # transcribe about this often so words appear while you speak
+LIVE_SPEECH_RMS = 0.006    # above this mic's room noise (~0.0045), low enough for quiet speech
 
 
 @dataclass(frozen=True)
@@ -33,7 +36,8 @@ ACTIONS: dict[str, Action] = {a.id: a for a in [
     Action("drag", "Drag", BUTTON, moves_cursor=True, hint="holds the left button while moving"),
     Action("scroll_up", "Scroll up", CONTINUOUS),
     Action("scroll_down", "Scroll down", CONTINUOUS),
-    Action("speech_to_text", "Dictate", ONESHOT, default_hold_ms=1000, hint="speak, text is typed"),
+    Action("speech_to_text", "Dictate", ONESHOT, default_hold_ms=1000,
+           hint="stays on while you speak; hold this gesture again to stop"),
     Action("toggle_gestures", "Pause / resume gestures", ONESHOT, default_hold_ms=1500,
            hint="works while paused too"),
 ]}
@@ -62,15 +66,19 @@ class PyAutoGuiBackend(Backend):
         self._gui = pyautogui
         self._last_scroll = 0.0
         self._listening = False
+        self._stop_listening = threading.Event()
+        self._whisper_model = None
         self.speech_available = False
         self.speech_error = ""
         try:
             import speech_recognition as sr
+            from faster_whisper import WhisperModel
             self._sr = sr
+            self._WhisperModel = WhisperModel
             self._recognizer = sr.Recognizer()
             self._mic = sr.Microphone()
             self.speech_available = True
-        except Exception as e:  # missing PyAudio, no microphone, etc.
+        except Exception as e:  # missing PyAudio, no microphone, or no Whisper
             self.speech_error = str(e)
 
     def screen_size(self):
@@ -97,23 +105,144 @@ class PyAutoGuiBackend(Backend):
             self._gui.scroll(amount)
             self._last_scroll = now
 
+    @property
+    def listening(self):
+        return self._listening
+
     def dictate(self):
-        if not self.speech_available or self._listening:
+        """Start dictation, or stop it if it is already running."""
+        if not self.speech_available:
             return
+        if self._listening:
+            print("Dictate off.", file=sys.stderr)
+            self.stop_dictate()
+            return
+        self._stop_listening.clear()
         self._listening = True
         threading.Thread(target=self._dictate_worker, daemon=True).start()
 
+    def stop_dictate(self):
+        self._stop_listening.set()
+
+    def _whisper(self):
+        if self._whisper_model is None:
+            print(f"Loading Whisper ({WHISPER_MODEL}).", file=sys.stderr)
+            self._whisper_model = self._WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8")
+        return self._whisper_model
+
+    def _transcribe_samples(self, samples, prompt):
+        segments, _info = self._whisper().transcribe(
+            samples,
+            beam_size=1,
+            language="en",
+            vad_filter=True,
+            condition_on_previous_text=False,
+            initial_prompt=prompt or None,
+            without_timestamps=True,
+        )
+        return "".join(segment.text for segment in segments).strip()
+
     def _dictate_worker(self):
-        sr = self._sr
+        import numpy as np
+        rate = LIVE_RATE
+        mic = self._sr.Microphone(sample_rate=rate, chunk_size=int(rate * 0.1))
+        blocks = []
+        lock = threading.Lock()
+        stop_read = threading.Event()
+
+        def read_mic():
+            try:
+                with mic as source:
+                    while not stop_read.is_set():
+                        raw = source.stream.read(source.CHUNK)
+                        block = np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0
+                        with lock:
+                            blocks.append(block)
+            except Exception as e:
+                print(f"Dictate failed: {e}", file=sys.stderr)
+                stop_read.set()
+
+        def snapshot():
+            with lock:
+                if not blocks:
+                    return np.empty(0, dtype=np.float32)
+                return np.concatenate(blocks)
+
+        def consume(end, keep):
+            """Drop audio before `end`, leaving `keep` samples of overlap. New mic
+            samples appended during transcription stay in the buffer."""
+            with lock:
+                if not blocks:
+                    return 0
+                audio = np.concatenate(blocks)
+                end = min(end, audio.size)
+                drop = max(0, end - keep)
+                rest = audio[drop:]
+                blocks.clear()
+                if rest.size:
+                    blocks.append(rest)
+                return end - drop
+
         try:
-            with self._mic as source:
-                self._recognizer.adjust_for_ambient_noise(source)
-                audio = self._recognizer.listen(source, timeout=SPEECH_TIMEOUT,
-                                                phrase_time_limit=SPEECH_PHRASE_LIMIT)
-            text = self._recognizer.recognize_google(audio)
-            if text:
-                self._gui.write(text, interval=TYPE_INTERVAL)
-        except (sr.UnknownValueError, sr.RequestError, sr.WaitTimeoutError):
-            pass
+            self._whisper()
+            print("Listening. Hold the dictate gesture again to stop.", file=sys.stderr)
+            reader = threading.Thread(target=read_mic, daemon=True)
+            reader.start()
+            typed = ""
+            processed = 0
+            overlap = int(0.25 * rate)
+            while not stop_read.is_set() and not self._stop_listening.is_set():
+                time.sleep(0.12)
+                audio = snapshot()
+                pending = audio.size - processed
+                if pending < int(LIVE_CHUNK_SECONDS * rate):
+                    continue
+                fresh = audio[processed:]
+                if float(np.sqrt(np.mean(fresh ** 2))) < LIVE_SPEECH_RMS:
+                    processed = consume(audio.size, 0)
+                    continue
+                piece = self._transcribe_samples(audio[max(0, processed - overlap):], typed[-160:])
+                addition = _new_dictation(typed, piece)
+                if addition:
+                    self._gui.write(addition, interval=0)
+                    typed += addition
+                processed = consume(audio.size, overlap)
+            audio = snapshot()
+            tail = audio[processed:]
+            if tail.size >= int(0.3 * rate) and float(np.sqrt(np.mean(tail ** 2))) >= LIVE_SPEECH_RMS:
+                piece = self._transcribe_samples(audio[max(0, processed - overlap):], typed[-160:])
+                addition = _new_dictation(typed, piece)
+                if addition:
+                    self._gui.write(addition, interval=0)
+        except Exception as e:
+            print(f"Dictate failed: {e}", file=sys.stderr)
         finally:
+            stop_read.set()
             self._listening = False
+
+
+def _new_dictation(already, piece):
+    """Text from this chunk that has not been typed yet."""
+    piece = " ".join(piece.split())
+    if not piece:
+        return ""
+    prev = already.strip()
+    if prev:
+        low_piece = piece.lower()
+        low_prev = prev.lower()
+        if low_piece.startswith(low_prev):
+            piece = piece[len(prev):].strip()
+        else:
+            # The chunk overlaps the previous audio, so drop a repeated ending.
+            cut = 0
+            limit = min(len(low_prev), len(low_piece), 40)
+            for n in range(limit, 0, -1):
+                if low_piece.startswith(low_prev[-n:]):
+                    cut = n
+                    break
+            piece = piece[cut:].strip()
+    if not piece:
+        return ""
+    if already and not already.endswith((" ", "\n")) and piece[0] not in ",.!?;:'":
+        return " " + piece
+    return piece

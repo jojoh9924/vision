@@ -96,7 +96,10 @@ class Engine:
 
         candidates = self._ordered
         if self.paused:
-            candidates = [m for m in candidates if m.action == TOGGLE_ACTION]
+            # Dictate can still be turned off while other gestures are ignored.
+            listening = getattr(self.backend, "listening", False)
+            candidates = [m for m in candidates if m.action == TOGGLE_ACTION or (
+                listening and m.action == "speech_to_text")]
         match = next((m for m in candidates if m.gesture.matches(features)), None)
 
         if match is not self.candidate:
