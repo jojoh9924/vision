@@ -48,42 +48,57 @@ def make_engine(profile=None):
     return e, b
 
 
+def snap(e, pose, t):
+    """Open the hand, then close into `pose`, so the pinch counts as a snap."""
+    e.update(feat("01000"), t)
+    e.update(pose, t + 0.05)
+    return t + 0.05
+
+
+def test_held_pinch_without_a_snap_does_not_click():
+    e, b = make_engine()
+    pinched = feat("11111", pinch="index")
+    e.update(pinched, 0.0)
+    e.update(pinched, 0.2)
+    e.update(pinched, 0.5)
+    assert b.events == []
+
+
 def test_oneshot_fires_once_after_hold():
     e, b = make_engine()
     f = feat("11111", pinch="middle")  # right click, hold 120 ms
-    e.update(f, 0.0)
+    t = snap(e, f, 0.0)
     assert b.events == [] and e.candidate is not None and e.active is None
-    e.update(f, 0.05)
+    e.update(f, t + 0.05)
     assert b.events == []
-    e.update(f, 0.13)
+    e.update(f, t + 0.13)
     assert b.events == ["click:right"]
-    e.update(f, 0.5)
-    e.update(f, 1.0)
+    e.update(f, t + 0.5)
+    e.update(f, t + 1.0)
     assert b.events == ["click:right"]
     # release and re-pinch fires again
-    e.update(feat("01000"), 1.1)
-    e.update(f, 1.2)
-    e.update(f, 1.4)
+    t = snap(e, f, t + 1.1)
+    e.update(f, t + 0.13)
     assert b.events == ["click:right", "click:right"]
 
 
 def test_button_down_up_and_release_on_hand_loss():
     e, b = make_engine()
     f = feat("11111", pinch="index")  # left_button, hold 0
-    e.update(f, 0.0)
+    t = snap(e, f, 0.0)
     assert b.events == ["down"]
-    e.update(f, 0.1)
+    e.update(f, t + 0.1)
     assert b.events == ["down"]
-    e.update(None, 0.2)
+    e.update(None, t + 0.2)
     assert b.events == ["down"]          # within LOST_TIMEOUT
-    e.update(None, 0.6)
+    e.update(None, t + 0.6)
     assert b.events == ["down", "up"]
 
 
 def test_button_released_on_gesture_change():
     e, b = make_engine()
-    e.update(feat("11111", pinch="index"), 0.0)
-    e.update(feat("01000"), 0.1)
+    t = snap(e, feat("11111", pinch="index"), 0.0)
+    e.update(feat("01000"), t + 0.1)
     assert b.events == ["down", "up"]
 
 
@@ -111,7 +126,7 @@ def test_scroll_runs_every_frame_and_respects_orientation():
 
 def test_pause_releases_and_blocks():
     e, b = make_engine()
-    e.update(feat("11111", pinch="index"), 0.0)
+    snap(e, feat("11111", pinch="index"), 0.0)
     e.set_paused(True)
     assert b.events == ["down", "up"]
     e.update(feat("11111", pinch="index"), 0.5)
@@ -181,7 +196,7 @@ def test_toggle_gesture_fires_even_while_paused_and_only_that():
 
 def test_suspended_engine_does_nothing_and_releases_buttons():
     e, b = make_engine()
-    e.update(feat("11111", pinch="index"), 0.0)
+    snap(e, feat("11111", pinch="index"), 0.0)
     e.set_suspended(True)
     assert b.events == ["down", "up"]
     e.update(feat("11111", pinch="index"), 0.5)
@@ -189,7 +204,7 @@ def test_suspended_engine_does_nothing_and_releases_buttons():
     e.update(feat("10001"), 3.0)
     assert b.events == ["down", "up"] and not e.toggle_requested
     e.set_suspended(False)
-    e.update(feat("11111", pinch="index"), 3.5)
+    snap(e, feat("11111", pinch="index"), 3.2)
     assert b.events == ["down", "up", "down"]
 
 

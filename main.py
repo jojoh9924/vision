@@ -16,11 +16,13 @@ def main():
     controller.start_hotkey()
 
     from app.ui.camera_window import CameraWindow
+    from app.ui.dictation import DictationUI
     from app.ui.magnifier import create_magnifier
     from app.ui.pane import Pane
 
     pane = Pane(controller)
     camera = CameraWindow(pane, controller)
+    DictationUI(pane, controller)
     camera.protocol("WM_DELETE_WINDOW", lambda: controller.set_camera_visible(False))
     pane.bind("<<ShowCamera>>", lambda e: controller.set_camera_visible(True))
     magnifier = create_magnifier(pane, controller.magnifier_on)
@@ -59,6 +61,7 @@ def main():
     finally:
         if tray:
             tray.stop()
+        magnifier.close()
         controller.stop()
 
 

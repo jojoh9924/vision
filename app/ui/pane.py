@@ -185,9 +185,6 @@ class Pane(tk.Tk):
             if action.hint:
                 tk.Label(text, text=action.hint, bg=CARD, fg=MUTED, anchor="w", justify="left",
                          wraplength=wrap, font=(FONT, 8)).pack(fill="x")
-            if action.id == "speech_to_text" and not self.c.backend.speech_available:
-                tk.Label(text, text="microphone unavailable", bg=CARD, fg=RED, anchor="w",
-                         font=(FONT, 8)).pack(fill="x")
             for w in (inner, accent, content, icon, text, *text.winfo_children()):
                 w.bind("<Button-1>", lambda e, a=action.id: self._edit(a))
             self._rows[action.id] = {"inner": inner, "accent": accent, "state": None}

@@ -18,7 +18,6 @@ def default_profile() -> Profile:
         _m("double_click", pinch="ring"),
         _m("scroll_up", "*1100", orientation="up"),
         _m("scroll_down", "*1100", orientation="down"),
-        _m("speech_to_text", "11111", hold_ms=1000),
         _m("toggle_gestures", "10001", hold_ms=1500),
     ], bundled=True)
 

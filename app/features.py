@@ -34,6 +34,7 @@ class HandFeatures:
     pinch_gap: float        # thumb tip to index tip distance / hand size
     bbox: tuple             # (x_min, y_min, x_max, y_max)
     hand_size: float
+    gaps: tuple = ()        # thumb-to-fingertip distance / hand size, index middle ring pinky
 
     @property
     def fingers_str(self) -> str:
@@ -74,9 +75,10 @@ def extract(landmarks) -> HandFeatures:
     pointer = tuple(lm[INDEX_TIP])
     knuckle = tuple(lm[INDEX_MCP])
     pinch_gap = _dist(lm[THUMB_TIP], lm[INDEX_TIP]) / hand_size
+    gaps = tuple(_dist(lm[THUMB_TIP], lm[_TIP[name]]) / hand_size for name in PINCH_FINGERS)
 
     xs = [p[0] for p in lm]
     ys = [p[1] for p in lm]
     bbox = (min(xs), min(ys), max(xs), max(ys))
 
-    return HandFeatures(tuple(fingers), pinch, orientation, pointer, knuckle, pinch_gap, bbox, hand_size)
+    return HandFeatures(tuple(fingers), pinch, orientation, pointer, knuckle, pinch_gap, bbox, hand_size, gaps)
