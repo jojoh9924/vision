@@ -20,6 +20,12 @@ class OneEuroFilter:
     def _alpha(cutoff, dt):
         return 1.0 / (1.0 + 1.0 / (2.0 * math.pi * cutoff * dt))
 
+    def reset(self, value, timestamp):
+        """Jump to `value` at rest, so smoothing continues from there without a stale velocity."""
+        self._time = timestamp
+        self._raw = self._value = value
+        self._derivative = 0.0
+
     def update(self, value, timestamp):
         if self._time is None:
             self._time = timestamp
