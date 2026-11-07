@@ -38,10 +38,12 @@ def main():
     controller.start_hotkey()
 
     from app.ui.camera_window import CameraWindow
+    from app.ui.dictation import DictationUI
     from app.ui.pane import Pane
 
     pane = Pane(controller)
     camera = CameraWindow(pane, controller)
+    DictationUI(pane, controller)
     pane.bind("<<ShowCamera>>", lambda e: camera.show())
     magnifier = None if args.no_magnifier else start_magnifier(pane)
 

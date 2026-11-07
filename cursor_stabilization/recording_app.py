@@ -58,9 +58,6 @@ def main(recorder=None):
     adaptive = AdaptiveSmoothing(cursor_filter_x, cursor_filter_y, enabled=recorder is None)
     curr_x, curr_y = 0, 0
     prev_time = 0
-    stab_buf = []
-    stab_thresh = 10
-    stab_rad = 10
     scroll_down_speed = -60
     scroll_up_speed = 60
     interval = 0.01 # interval (in seconds) between keystrokes when typing.
@@ -134,34 +131,10 @@ def main(recorder=None):
                     pyautogui.moveTo(min(scr_w - 1, max(0, scr_w - curr_x)), min(scr_h - 1, max(0, curr_y)), _pause=False)
                     cv2.circle(img, (x1, y1), 7, (255, 0, 255), cv2.FILLED)
 
-                    stab_buf.append((curr_x, curr_y))
-                    if len(stab_buf) > stab_thresh:
-                        stab_buf.pop(0)
-
-                # Single left click
-                if fingers[1] == 1 and fingers[2] == 1:
-                    if len(stab_buf) == stab_thresh and all(
-                        np.linalg.norm(np.array(pos) - np.array(stab_buf[0])) < stab_rad
-                        for pos in stab_buf
-                    ):
-                        cv2.circle(img, (x1, y1), 15, (0, 255, 0), cv2.FILLED)
-                        pyautogui.click(_pause=False)
-                        stab_buf.clear()
-
                 # Double left click
                 if fingers[1] == 1 and fingers[4] == 1 and all(f == 0 for f in [fingers[0], fingers[2], fingers[3]]):
                     pyautogui.click(_pause=False)
                     pyautogui.click(_pause=False)
-
-                # Single right click
-                if fingers[0] == 1 and all(f == 0 for f in fingers[1:]):
-                    if len(stab_buf) == stab_thresh and all(
-                        np.linalg.norm(np.array(pos) - np.array(stab_buf[0])) < stab_rad
-                        for pos in stab_buf
-                    ):
-                        cv2.circle(img, (x1, y1), 15, (0, 255, 0), cv2.FILLED)
-                        pyautogui.click(button="right", _pause=False)
-                        stab_buf.clear()
 
                 # Hold left click and move
                 if fingers[0] == 0 and all(f == 1 for f in fingers[1:]):

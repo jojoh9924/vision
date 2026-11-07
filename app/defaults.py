@@ -19,7 +19,6 @@ def BUNDLED() -> list[Profile]:
             _m("double_click", pinch="ring"),
             _m("scroll_up", "*1100", orientation="up"),
             _m("scroll_down", "*1100", orientation="down"),
-            _m("speech_to_text", "11111", hold_ms=1000),
             _m("toggle_gestures", "10001", hold_ms=1500),
         ], bundled=True),
 
@@ -31,7 +30,6 @@ def BUNDLED() -> list[Profile]:
             _m("scroll_down", "00000"),
             _m("scroll_up", "11111"),
             _m("double_click", "00001", hold_ms=300),
-            _m("speech_to_text", "10001", hold_ms=800),
             _m("toggle_gestures", "01111", hold_ms=1500),
         ], bundled=True),
 
@@ -43,7 +41,6 @@ def BUNDLED() -> list[Profile]:
             _m("drag", "01111"),
             _m("scroll_down", "00000"),
             _m("scroll_up", "11111"),
-            _m("speech_to_text", "00100", hold_ms=500),
             _m("toggle_gestures", "10001", hold_ms=1500),
         ], bundled=True),
     ]

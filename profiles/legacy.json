@@ -73,16 +73,6 @@
       "image": null
     },
     {
-      "action": "speech_to_text",
-      "gesture": {
-        "fingers": "00100",
-        "pinch": null,
-        "orientation": "any"
-      },
-      "hold_ms": 500,
-      "image": null
-    },
-    {
       "action": "toggle_gestures",
       "gesture": {
         "fingers": "10001",

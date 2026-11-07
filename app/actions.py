@@ -36,8 +36,6 @@ ACTIONS: dict[str, Action] = {a.id: a for a in [
     Action("drag", "Drag", BUTTON, moves_cursor=True, hint="holds the left button while moving"),
     Action("scroll_up", "Scroll up", CONTINUOUS),
     Action("scroll_down", "Scroll down", CONTINUOUS),
-    Action("speech_to_text", "Dictate", ONESHOT, default_hold_ms=1000,
-           hint="stays on while you speak; hold this gesture again to stop"),
     Action("toggle_gestures", "Pause / resume gestures", ONESHOT, default_hold_ms=1500,
            hint="works while paused too"),
 ]}
@@ -54,7 +52,12 @@ class Backend:
     def click(self, button: str = "left"): ...
     def double_click(self): ...
     def scroll(self, amount: int): ...
+    speech_available = False
+    dictation_state = "idle"
+
     def dictate(self): ...
+    def start_dictate(self) -> bool: return False
+    def stop_dictate(self): ...
     def screen_size(self) -> tuple[int, int]: return (1920, 1080)
 
 
@@ -65,7 +68,7 @@ class PyAutoGuiBackend(Backend):
         pyautogui.FAILSAFE = False
         self._gui = pyautogui
         self._last_scroll = 0.0
-        self._listening = False
+        self._dictation_state = "idle"  # idle | loading | listening | finishing
         self._stop_listening = threading.Event()
         self._whisper_model = None
         self.speech_available = False
@@ -106,22 +109,27 @@ class PyAutoGuiBackend(Backend):
             self._last_scroll = now
 
     @property
+    def dictation_state(self):
+        return self._dictation_state
+
+    @property
     def listening(self):
-        return self._listening
+        return self._dictation_state != "idle"
 
     def dictate(self):
-        """Start dictation, or stop it if it is already running."""
-        if not self.speech_available:
-            return
-        if self._listening:
-            print("Dictate off.", file=sys.stderr)
-            self.stop_dictate()
-            return
+        self.start_dictate()
+
+    def start_dictate(self) -> bool:
+        if not self.speech_available or self._dictation_state != "idle":
+            return False
         self._stop_listening.clear()
-        self._listening = True
+        self._dictation_state = "loading"
         threading.Thread(target=self._dictate_worker, daemon=True).start()
+        return True
 
     def stop_dictate(self):
+        if self._dictation_state != "idle":
+            print("Dictate off.", file=sys.stderr)
         self._stop_listening.set()
 
     def _whisper(self):
@@ -185,9 +193,10 @@ class PyAutoGuiBackend(Backend):
 
         try:
             self._whisper()
-            print("Listening. Hold the dictate gesture again to stop.", file=sys.stderr)
+            print("Listening. Press Stop on screen to end.", file=sys.stderr)
             reader = threading.Thread(target=read_mic, daemon=True)
             reader.start()
+            self._dictation_state = "listening"
             typed = ""
             processed = 0
             overlap = int(0.25 * rate)
@@ -207,6 +216,7 @@ class PyAutoGuiBackend(Backend):
                     self._gui.write(addition, interval=0)
                     typed += addition
                 processed = consume(audio.size, overlap)
+            self._dictation_state = "finishing"
             audio = snapshot()
             tail = audio[processed:]
             if tail.size >= int(0.3 * rate) and float(np.sqrt(np.mean(tail ** 2))) >= LIVE_SPEECH_RMS:
@@ -218,7 +228,7 @@ class PyAutoGuiBackend(Backend):
             print(f"Dictate failed: {e}", file=sys.stderr)
         finally:
             stop_read.set()
-            self._listening = False
+            self._dictation_state = "idle"
 
 
 def _new_dictation(already, piece):

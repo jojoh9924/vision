@@ -5,7 +5,7 @@ from cursor_stabilization.cursor_state import CursorState
 from cursor_stabilization.adaptive_smoothing import AdaptiveSmoothing
 
 from .actions import ACTIONS, BUTTON, CONTINUOUS, ONESHOT, SCROLL_STEP, TOGGLE_ACTION, Backend
-from .features import HandFeatures
+from .features import PINCH_FINGERS, HandFeatures
 from .profiles import Mapping, Profile
 
 LOST_TIMEOUT = 0.3    # seconds without a hand before held buttons are released
@@ -16,6 +16,9 @@ HOVER_BREAK_PX = 45    # movement needed to leave a locked position
 APPROACH_GAP = 0.55    # thumb-index gap (hand sizes) below which a pinch may be starting
 APPROACH_DROP = 0.12   # gap must have shrunk by this much within APPROACH_WINDOW to count
 APPROACH_WINDOW = 0.2  # seconds
+SNAP_WINDOW = 0.25     # a click only counts if the pinched fingers snapped shut this recently
+SNAP_DROP = 0.20       # how far the gap must fall, in hand sizes, to count as a snap
+CLICK_ACTIONS = {"left_button", "left_click", "right_click", "double_click"}
 
 
 class Engine:
@@ -35,7 +38,6 @@ class Engine:
         self.paused = False
         self.suspended = False          # True while the editor is recording a pose: nothing fires
         self.toggle_requested = False   # set when the toggle gesture fires; the worker acts on it
-
         self.candidate: Mapping | None = None
         self.active: Mapping | None = None
         self._candidate_since = 0.0
@@ -47,7 +49,7 @@ class Engine:
         self._press_knuckle = None  # knuckle screen position when a button went down
         self._press_cursor = None
         self._drag_started = False
-        self._gap_history = []      # recent (time, pinch_gap)
+        self._gap_history = []      # recent (time, fingertip gaps); a click needs a snap in here
         self._prev_x = self.screen_w / 2
         self._prev_y = self.screen_h / 2
 
@@ -83,14 +85,21 @@ class Engine:
                 self.release()
             return
         self._last_seen = now
+        self._remember_gaps(features, now)
 
         candidates = self._ordered
         if self.paused:
-            # Dictate can still be turned off while other gestures are ignored.
-            listening = getattr(self.backend, "listening", False)
-            candidates = [m for m in candidates if m.action == TOGGLE_ACTION or (
-                listening and m.action == "speech_to_text")]
+            candidates = [m for m in candidates if m.action == TOGGLE_ACTION]
         match = next((m for m in candidates if m.gesture.matches(features)), None)
+        # A pinch that is simply held, or drifted into while hovering, is not a
+        # click. Only a snap — the gap slamming shut — may start one. Once the
+        # button is down, holding the pinch keeps the drag going.
+        if (match and match.action in CLICK_ACTIONS and match.gesture.pinch
+                and not self._button_down and match is not self.candidate
+                and not self._snapped(match.gesture.pinch)):
+            skipped = match.action
+            match = next((m for m in candidates
+                          if m.action != skipped and m.gesture.matches(features)), None)
 
         if match is not self.candidate:
             self.release()
@@ -137,8 +146,6 @@ class Engine:
             b.click("right")
         elif action_id == "double_click":
             b.double_click()
-        elif action_id == "speech_to_text":
-            b.dictate()
         elif action_id == TOGGLE_ACTION:
             self.toggle_requested = True
 
@@ -175,10 +182,9 @@ class Engine:
 
         # A pinch starting: thumb and index closing fast. Freeze before the
         # curling fingertip can drag the cursor off the target.
-        self._gap_history.append((now, f.pinch_gap))
-        self._gap_history = [(t, g) for t, g in self._gap_history if now - t <= APPROACH_WINDOW]
-        closing = (f.pinch_gap < APPROACH_GAP
-                   and max(g for _, g in self._gap_history) - f.pinch_gap >= APPROACH_DROP)
+        recent = [g[0] for t, g in self._gap_history if now - t <= APPROACH_WINDOW]
+        closing = (f.pinch_gap < APPROACH_GAP and recent
+                   and max(recent) - f.pinch_gap >= APPROACH_DROP)
         if closing:
             if self._lock is None:
                 self._lock = (self._prev_x, self._prev_y)
@@ -224,6 +230,17 @@ class Engine:
         sx = min(max(self.screen_w - x, 0), self.screen_w - 1)
         sy = min(max(y, 0), self.screen_h - 1)
         self.backend.move_to(sx, sy)
+
+
+    def _remember_gaps(self, f: HandFeatures, now: float):
+        self._gap_history.append((now, f.gaps))
+        self._gap_history = [(t, g) for t, g in self._gap_history if now - t <= SNAP_WINDOW]
+
+    def _snapped(self, finger: str) -> bool:
+        recent = [g[PINCH_FINGERS.index(finger)] for _, g in self._gap_history]
+        if len(recent) < 2:
+            return False
+        return max(recent) - recent[-1] >= SNAP_DROP
 
 
 def _dist(a, b):
