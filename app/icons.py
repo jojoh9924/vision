@@ -44,7 +44,9 @@ def render(gesture: Gesture, size: int = 96) -> Image.Image:
     colors = {}
     for name, ch in zip(FINGER_ORDER, gesture.fingers):
         colors[name] = EXTENDED if ch == "1" else CURLED if ch == "0" else WILDCARD
-    if gesture.pinch:
+    if gesture.pinch == "all":
+        colors = {name: PINCH for name in colors}
+    elif gesture.pinch:
         colors["thumb"] = PINCH
         colors[gesture.pinch] = PINCH
 

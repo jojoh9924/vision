@@ -34,6 +34,8 @@ class Tray:
                        checked=lambda _: self.c.camera_visible)
         yield MenuItem("Magnifier", self._on_tk(self.c.toggle_magnifier),
                        checked=lambda _: self.c.magnifier_on)
+        yield MenuItem("Hover lock (hold still to lock cursor)", self._on_tk(self.c.toggle_hover_lock),
+                       checked=lambda _: self.c.hover_lock)
         yield Menu.SEPARATOR
         yield MenuItem("Show gesture pane", self._on_tk(self._show_pane), default=True)
         yield MenuItem("Reset gestures to defaults", self._on_tk(self.c.reset_defaults))

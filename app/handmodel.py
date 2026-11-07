@@ -21,7 +21,7 @@ FINGER_JOINTS = {"thumb": (1, 2, 3, 4), "index": (5, 6, 7, 8), "middle": (9, 10,
 FINGER_ORDER = ("thumb", "index", "middle", "ring", "pinky")
 
 PINCH_POINT = {"index": (-0.50, 1.50), "middle": (-0.25, 1.55),
-               "ring": (-0.05, 1.45), "pinky": (0.15, 1.30)}
+               "ring": (-0.05, 1.45), "pinky": (0.15, 1.30), "all": (-0.15, 1.45)}
 
 BONES = [(0, 1), (1, 2), (2, 3), (3, 4), (0, 5), (5, 6), (6, 7), (7, 8), (5, 9), (9, 10),
          (10, 11), (11, 12), (9, 13), (13, 14), (14, 15), (15, 16), (13, 17), (0, 17),
@@ -40,7 +40,7 @@ def model_points(fingers: str = "11111", pinch: str | None = None) -> list[tuple
     """Landmarks in model space. '*' is drawn extended."""
     pts = list(OPEN_HAND)
     for name, ch in zip(FINGER_ORDER, fingers):
-        if ch != "0" or name == pinch:
+        if ch != "0" or name == pinch or (pinch == "all" and name != "thumb"):
             continue
         mcp, pip, dip, tip = FINGER_JOINTS[name]
         if name == "thumb":
@@ -59,10 +59,12 @@ def model_points(fingers: str = "11111", pinch: str | None = None) -> list[tuple
         t_mcp = pts[2]
         pts[3] = (t_mcp[0] + 0.55 * (meet[0] - t_mcp[0]) - 0.15, t_mcp[1] + 0.55 * (meet[1] - t_mcp[1]))
         pts[4] = meet
-        _, pip, dip, tip = FINGER_JOINTS[pinch]
-        p = pts[pip]
-        pts[dip] = (p[0] + 0.5 * (meet[0] - p[0]) + 0.05, p[1] + 0.5 * (meet[1] - p[1]) + 0.05)
-        pts[tip] = meet
+        fingers_to_meet = ("index", "middle", "ring", "pinky") if pinch == "all" else (pinch,)
+        for name in fingers_to_meet:
+            _, pip, dip, tip = FINGER_JOINTS[name]
+            p = pts[pip]
+            pts[dip] = (p[0] + 0.5 * (meet[0] - p[0]) + 0.05, p[1] + 0.5 * (meet[1] - p[1]) + 0.05)
+            pts[tip] = meet
     return pts
 
 

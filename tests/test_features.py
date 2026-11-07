@@ -36,3 +36,9 @@ def test_bbox_and_size():
     f = features.extract(landmarks("11111", scale=50, center=(100, 100)))
     assert f.hand_size == pytest.approx(50)
     assert f.bbox[0] < 100 < f.bbox[2]
+
+
+def test_all_fingertips_together_is_its_own_pinch():
+    f = features.extract(landmarks("11111", pinch="all"))
+    assert f.pinch == "all"
+    assert features.extract(landmarks("00000")).pinch is None   # a fist is not a pinch

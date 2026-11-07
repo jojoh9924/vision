@@ -16,6 +16,7 @@ def default_profile() -> Profile:
         _m("left_button", pinch="index", hold_ms=0),
         _m("right_click", pinch="middle"),
         _m("double_click", pinch="ring"),
+        _m("move_window", pinch="all"),
         _m("scroll_up", "*1100", orientation="up"),
         _m("scroll_down", "*1100", orientation="down"),
         _m("toggle_gestures", "10001", hold_ms=1500),

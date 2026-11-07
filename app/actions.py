@@ -34,6 +34,8 @@ ACTIONS: dict[str, Action] = {a.id: a for a in [
     Action("right_click", "Right click", ONESHOT),
     Action("double_click", "Double click", ONESHOT),
     Action("drag", "Drag", BUTTON, moves_cursor=True, hint="holds the left button while moving"),
+    Action("move_window", "Move window", BUTTON, moves_cursor=True,
+           hint="hold to carry the window under the pointer"),
     Action("scroll_up", "Scroll up", CONTINUOUS),
     Action("scroll_down", "Scroll down", CONTINUOUS),
     Action("toggle_gestures", "Pause / resume gestures", ONESHOT, default_hold_ms=1500,
@@ -59,6 +61,10 @@ class Backend:
     def start_dictate(self) -> bool: return False
     def stop_dictate(self): ...
     def screen_size(self) -> tuple[int, int]: return (1920, 1080)
+    # window carrying (optional): return False if unsupported, the engine then drags instead
+    def grab_window_at(self, x: int, y: int) -> bool: return False
+    def move_grabbed_window(self, dx: int, dy: int): ...
+    def release_window(self): ...
 
 
 class PyAutoGuiBackend(Backend):
@@ -101,6 +107,43 @@ class PyAutoGuiBackend(Backend):
 
     def double_click(self):
         self._gui.doubleClick()
+
+    # window carrying
+    def grab_window_at(self, x, y):
+        if sys.platform != "win32":
+            return False
+        import ctypes
+        from ctypes import wintypes
+        u = ctypes.windll.user32
+        hwnd = u.WindowFromPoint(wintypes.POINT(int(x), int(y)))
+        if not hwnd:
+            return False
+        hwnd = u.GetAncestor(hwnd, 2)  # GA_ROOT: the top-level window
+        if hwnd in (u.GetDesktopWindow(), u.GetShellWindow()):
+            return False
+        cls = ctypes.create_unicode_buffer(64)
+        u.GetClassNameW(hwnd, cls, 64)
+        if cls.value in ("Progman", "WorkerW", "Shell_TrayWnd"):
+            return False
+        if u.IsZoomed(hwnd):          # maximised windows do not move
+            return False
+        rect = wintypes.RECT()
+        if not u.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return False
+        self._grab = (hwnd, rect.left, rect.top)
+        return True
+
+    def move_grabbed_window(self, dx, dy):
+        if not getattr(self, "_grab", None):
+            return
+        import ctypes
+        hwnd, left, top = self._grab
+        SWP_NOSIZE, SWP_NOZORDER, SWP_NOACTIVATE = 0x1, 0x4, 0x10
+        ctypes.windll.user32.SetWindowPos(hwnd, 0, int(left + dx), int(top + dy), 0, 0,
+                                          SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE)
+
+    def release_window(self):
+        self._grab = None
 
     def scroll(self, amount):
         now = time.monotonic()

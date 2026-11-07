@@ -168,6 +168,7 @@ def test_pinch_start_freezes_cursor_and_drag_needs_real_motion():
 
 def test_small_motion_after_long_hold_is_not_locked():
     e, b = make_engine()
+    e.hover_lock = False   # hover lock is optional (tray menu); this checks the off behaviour
     for i in range(31):
         e.update(feat("01000", center=(300, 240)), i / 30)
     before = b.pos
@@ -249,3 +250,69 @@ def test_curling_finger_does_not_move_cursor_but_hand_motion_does():
     e.update(feat("01000", center=(300, 330)), 12 * 0.033)
     e.update(feat("01000", center=(300, 330)), 13 * 0.033)
     assert b.pos[1] - settled[1] > 30
+
+
+def test_hover_lock_ignores_small_drift_until_clear_move():
+    e, b = make_engine()
+    e.update(feat("01000", center=(300, 240)), 0.0)
+    e.update(feat("01000", center=(301, 240)), 0.2)
+    e.update(feat("01000", center=(302, 241)), 0.5)   # still for 500 ms: locks
+    locked = b.pos
+    e.update(feat("01000", center=(305, 243)), 0.6)
+    assert b.pos == locked
+    e.update(feat("01000", center=(380, 240)), 0.7)   # clear move: follows again
+    assert b.pos != locked
+
+
+def test_hover_lock_can_be_turned_off():
+    e, b = make_engine()
+    e.hover_lock = False
+    e.update(feat("01000", center=(300, 240)), 0.0)
+    e.update(feat("01000", center=(301, 240)), 0.2)
+    e.update(feat("01000", center=(302, 241)), 0.5)
+    p = b.pos
+    e.update(feat("01000", center=(306, 244)), 0.6)   # small correction still moves
+    assert b.pos != p
+
+
+def test_click_start_switches_to_heavy_smoothing_and_resets_filters():
+    import dataclasses
+    e, b = make_engine()
+    e.hover_lock = False
+    assert e.adaptive.enabled
+    for i in range(5):
+        e.update(feat("01000", center=(200 + i * 30, 240)), i * 0.1)
+    closing = dataclasses.replace(feat("01000", center=(400, 240)), pinch_gap=0.4)
+    e.update(closing, 0.5)
+    assert e._damp_until > 0.5
+    # the One Euro filters were reset to the rewound cursor position
+    assert (e.filter_x._value, e.filter_y._value) == (e._prev_x, e._prev_y)
+
+
+def test_all_fingertips_pinch_carries_the_window_under_the_cursor():
+    e, b = make_engine()
+    b.grabbed = None
+    b.moves = []
+    b.grab_window_at = lambda x, y: setattr(b, "grabbed", (x, y)) or True
+    b.move_grabbed_window = lambda dx, dy: b.moves.append((dx, dy))
+    b.release_window = lambda: setattr(b, "grabbed", "released")
+    e.update(feat("01000", center=(300, 240)), 0.0)
+    f = feat("11111", pinch="all", center=(300, 240))
+    e.update(f, 0.1)
+    e.update(f, 0.3)                      # past hold: window grabbed, no mouse button
+    assert b.grabbed is not None and b.events == []
+    e.update(feat("11111", pinch="all", center=(300, 330)), 0.4)   # hand moves down
+    e.update(feat("11111", pinch="all", center=(300, 330)), 0.5)
+    assert b.moves and b.moves[-1][1] > 0
+    e.update(feat("01000", center=(300, 330)), 0.6)
+    assert b.grabbed == "released" and b.events == []
+
+
+def test_move_window_falls_back_to_drag_when_unsupported():
+    e, b = make_engine()                  # FakeBackend.grab_window_at -> False
+    f = feat("11111", pinch="all")
+    e.update(f, 0.0)
+    e.update(f, 0.2)
+    assert b.events == ["down"]
+    e.update(feat("01000"), 0.3)
+    assert b.events == ["down", "up"]

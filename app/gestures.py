@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from .features import FINGER_NAMES, HandFeatures
 
 ORIENTATIONS = ("any", "up", "down", "left", "right")
-PINCHES = (None, "index", "middle", "ring", "pinky")
+PINCHES = (None, "index", "middle", "ring", "pinky", "all")
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,9 @@ class Gesture:
 
     def describe(self) -> str:
         parts = []
-        if self.pinch:
+        if self.pinch == "all":
+            parts.append("All fingertips together")
+        elif self.pinch:
             parts.append(f"Pinch thumb + {self.pinch}")
             extra = [n for n, c in zip(FINGER_NAMES, self.fingers) if c == "1" and n not in ("thumb", self.pinch)]
             if extra:
@@ -97,4 +99,5 @@ PRESET_GESTURES: list[tuple[str, Gesture]] = [
     ("Pinch thumb + middle", Gesture("*****", "middle")),
     ("Pinch thumb + ring", Gesture("*****", "ring")),
     ("Pinch thumb + pinky", Gesture("*****", "pinky")),
+    ("All fingertips together", Gesture("*****", "all")),
 ]

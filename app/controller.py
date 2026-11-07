@@ -25,6 +25,8 @@ class Controller:
         self.paused = False
         self.camera_visible = bool(self.store.get_setting("camera_visible", True))
         self.magnifier_on = bool(self.store.get_setting("magnifier", True))
+        self.hover_lock = bool(self.store.get_setting("hover_lock", True))
+        self.engine.hover_lock = self.hover_lock
 
         self._listeners = []
         # UI sets this to hop listener calls onto its thread (e.g. tk's after)
@@ -130,3 +132,14 @@ class Controller:
 
     def toggle_magnifier(self):
         self.set_magnifier(not self.magnifier_on)
+
+    def set_hover_lock(self, on: bool):
+        """Lock the cursor after holding still briefly; off lets tiny corrections through."""
+        self.hover_lock = on
+        self.store.set_setting("hover_lock", on)
+        with self.worker.engine_lock:
+            self.engine.hover_lock = on
+        self._notify("hover")
+
+    def toggle_hover_lock(self):
+        self.set_hover_lock(not self.hover_lock)

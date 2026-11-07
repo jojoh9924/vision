@@ -71,6 +71,16 @@
       },
       "hold_ms": 120,
       "image": null
+    },
+    {
+      "action": "move_window",
+      "gesture": {
+        "fingers": "*****",
+        "pinch": "all",
+        "orientation": "any"
+      },
+      "hold_ms": 120,
+      "image": null
     }
   ]
 }

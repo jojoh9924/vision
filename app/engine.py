@@ -22,6 +22,9 @@ EASE_S = 0.15          # after a click freeze ends, close the gap to the finger 
 SNAP_WINDOW = 0.25     # a click only counts if the pinched fingers snapped shut this recently
 SNAP_DROP = 0.20       # how far the gap must fall, in hand sizes, to count as a snap
 CLICK_ACTIONS = {"left_button", "left_click", "right_click", "double_click"}
+DAMP_S = 0.4           # after a click starts, use heavy smoothing for this long (One Euro is too eager)
+HOVER_RADIUS_PX = 18   # target wobble treated as "holding still" (hover lock)
+HOVER_MS = 450         # how long still before the cursor locks in place (hover lock)
 
 
 class Engine:
@@ -34,10 +37,13 @@ class Engine:
         self.cursor_state = CursorState()
         self.cursor_label, self.cursor_score = 'UNTRAINED', 0.0
         self.filter_x, self.filter_y = OneEuroFilter(), OneEuroFilter()
-        # On by default: time-based One Euro smoothing, with classifier-tuned parameters
-        # when a local model exists. Toggle with 'a' to fall back to the fixed low-pass
-        # (1/smooth per frame) in _glide_to.
+        # Hybrid smoothing. Pointing uses time-based One Euro (low lag on big moves), with
+        # classifier-tuned parameters when a local model exists. The moment a click starts
+        # (finger curl / pinch closing) the engine switches to the fixed low-pass
+        # (1/smooth per frame) for DAMP_S, because One Euro passes the curl straight
+        # through to the cursor. Toggle 'a' to use the fixed low-pass all the time.
         self.adaptive = AdaptiveSmoothing(self.filter_x, self.filter_y, enabled=True)
+        self.hover_lock = True      # lock the cursor after holding still briefly (settable)
 
         self.profile: Profile | None = None
         self._ordered: list[Mapping] = []
@@ -48,10 +54,14 @@ class Engine:
         self.active: Mapping | None = None
         self._candidate_since = 0.0
         self._button_down = False
+        self._grabbing = False      # carrying a window (move_window action)
+        self._grab_cursor = None    # cursor screen position when the window was grabbed
         self._last_seen = 0.0
         self._prev_seen = 0.0           # time of the frame before _last_seen
         # cursor stabilisation
         self._lock = None           # cursor held here while hovering or starting a pinch
+        self._still_ref = None      # (target, since) used by the hover lock
+        self._damp_until = 0.0      # heavy smoothing is used until this time
         self._press_knuckle = None  # knuckle screen position when a button went down
         self._press_cursor = None
         self._drag_started = False
@@ -140,6 +150,9 @@ class Engine:
         if self._button_down:
             self.backend.mouse_up()
             self._button_down = False
+        if self._grabbing:
+            self.backend.release_window()
+            self._grabbing = False
         self._press_knuckle = None
         self._drag_started = False
         self.active = None
@@ -157,8 +170,12 @@ class Engine:
         if action.kind == ONESHOT:
             self._fire(m.action)
         elif action.kind == BUTTON:
-            self.backend.mouse_down()
-            self._button_down = True
+            if m.action == "move_window":
+                self._grab_cursor = self._cursor_screen()
+                self._grabbing = self.backend.grab_window_at(*self._grab_cursor)
+            if not self._grabbing:
+                self.backend.mouse_down()   # ordinary drag (also the fallback for move_window)
+                self._button_down = True
             self._press_knuckle = None
             self._drag_started = False
 
@@ -181,7 +198,7 @@ class Engine:
             self.cursor_label, self.cursor_score = self.cursor_state.update(
                 self._last_seen, 1.0 - tx / self.screen_w, ty / self.screen_h)
             self.adaptive.update(self.cursor_label, self._last_seen)
-            if self._button_down:
+            if self._button_down or self._grabbing:
                 self._drag_cursor(f)
             else:
                 self._point_cursor(f, self._last_seen)
@@ -240,11 +257,13 @@ class Engine:
         self._lock_knuckle = None
         self._curl_pending = None
         self._ease = None
+        self._still_ref = None
 
     def _take_lock(self, f: HandFeatures):
         self._lock = (self._prev_x, self._prev_y)
         self._lock_knuckle = self._to_screen(f.knuckle)
         self._ease = None
+        self._still_ref = None
 
     def _point_cursor(self, f: HandFeatures, now: float):
         target = self._to_screen(f.pointer)
@@ -254,6 +273,7 @@ class Engine:
         if clicking == "pending":
             return                      # hold for one frame until the curl is confirmed
         if clicking:
+            self._damp_until = now + DAMP_S
             if self._lock is None:
                 # Measured from when the motion was first seen, not from the confirmation.
                 seen = self._click_seen if self._click_seen is not None else now
@@ -277,6 +297,14 @@ class Engine:
                 start = max(self._prev_seen, now - EASE_S)
                 self._ease = (start, self._prev_x - target[0], self._prev_y - target[1])
 
+        # Hover lock (optional): after holding still briefly, ignore small drift.
+        if self.hover_lock:
+            if self._still_ref is None or _dist(target, self._still_ref[0]) > HOVER_RADIUS_PX:
+                self._still_ref = (target, now)
+            elif (now - self._still_ref[1]) * 1000 >= HOVER_MS:
+                self._take_lock(f)
+                return
+
         self._glide_to(target)
 
     def _drag_cursor(self, f: HandFeatures):
@@ -293,10 +321,13 @@ class Engine:
             self._drag_started = True
         self._lock = None
         self._glide_to((self._press_cursor[0] + dx, self._press_cursor[1] + dy))
+        if self._grabbing:
+            cx, cy = self._cursor_screen()
+            self.backend.move_grabbed_window(cx - self._grab_cursor[0], cy - self._grab_cursor[1])
 
     def _glide_to(self, target):
         tx, ty = target
-        if self.adaptive.enabled:
+        if self.adaptive.enabled and self._last_seen >= self._damp_until:
             x = self.filter_x.update(tx, self._last_seen)
             y = self.filter_y.update(ty, self._last_seen)
             if self._ease is not None:
@@ -327,6 +358,12 @@ class Engine:
         self.filter_y.reset(y, self._last_seen)
         self._emit(x, y)
         self._trail = []
+
+    def _cursor_screen(self):
+        """Where the cursor currently is on screen (mirrored x)."""
+        sx = min(max(self.screen_w - self._prev_x, 0), self.screen_w - 1)
+        sy = min(max(self._prev_y, 0), self.screen_h - 1)
+        return sx, sy
 
     def _emit(self, x, y):
         self._prev_x, self._prev_y = x, y

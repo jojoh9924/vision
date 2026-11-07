@@ -58,7 +58,12 @@ def extract(landmarks) -> HandFeatures:
     near = [name for name in PINCH_FINGERS
             if _dist(lm[THUMB_TIP], lm[_TIP[name]]) < PINCH_RATIO * hand_size
             and _dist(lm[_TIP[name]], wrist) > PINCH_REACH * _dist(lm[_MCP[name]], wrist)]
-    pinch = near[0] if len(near) == 1 else None
+    if len(near) >= 3:
+        pinch = "all"          # fingertips bunched on the thumb
+    elif len(near) == 1:
+        pinch = near[0]
+    else:
+        pinch = None
 
     dx = lm[MIDDLE_MCP][0] - wrist[0]
     dy = wrist[1] - lm[MIDDLE_MCP][1]  # flip so positive is up
