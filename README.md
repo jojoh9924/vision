@@ -1,4 +1,3 @@
-# Archand
 Control your computer entirely using in-air hand gestures.
 
 - The autopy library can only be installed on Python 3.8 or earlier versions.

@@ -1,7 +1,9 @@
-opencv-python
-mediapipe
+opencv-python==4.11.0.86
+mediapipe==0.10.21
 numpy
 pyautogui
 autopy
 SpeechRecognition
 PyAudio
+pyobjc-framework-Cocoa
+pyobjc-framework-Quartz
