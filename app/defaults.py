@@ -19,6 +19,10 @@ def default_profile() -> Profile:
         _m("move_window", pinch="all"),
         _m("scroll_up", "*1100", orientation="up"),
         _m("scroll_down", "*1100", orientation="down"),
+        _m("press_enter", "10000", hold_ms=500),     # thumbs up
+        # sideways peace sign (thumb tucked) toward the user's left, like a back arrow; the camera
+        # image is unmirrored, so that reads as "right"
+        _m("press_delete", "01100", orientation="right", hold_ms=500),
         _m("toggle_gestures", "10001", hold_ms=1500),
     ], bundled=True)
 

@@ -4,7 +4,8 @@ from cursor_stabilization import OneEuroFilter
 from cursor_stabilization.cursor_state import CursorState
 from cursor_stabilization.adaptive_smoothing import AdaptiveSmoothing
 
-from .actions import ACTIONS, BUTTON, CONTINUOUS, ONESHOT, SCROLL_STEP, TOGGLE_ACTION, Backend
+from .actions import (ACTIONS, BUTTON, CONTINUOUS, KEY_ACTIONS, ONESHOT, SCROLL_STEP,
+                      TOGGLE_ACTION, Backend)
 from .features import PINCH_FINGERS, HandFeatures
 from .profiles import Mapping, Profile
 
@@ -123,6 +124,11 @@ class Engine:
         if self.paused:
             candidates = [m for m in candidates if m.action == TOGGLE_ACTION]
         match = next((m for m in candidates if m.gesture.matches(features)), None)
+        # Direction hysteresis: the current gesture keeps matching anywhere in its own
+        # direction sector, so wobbling near the start threshold doesn't reset its hold.
+        if (match is None and self.candidate is not None and self.candidate in candidates
+                and self.candidate.gesture.matches(features, margin=0.0)):
+            match = self.candidate
         # A pinch that is simply held, or drifted into while hovering, is not a
         # click. Only a snap — the gap slamming shut — may start one. Once the
         # button is down, holding the pinch keeps the drag going.
@@ -202,6 +208,8 @@ class Engine:
             b.click("right")
         elif action_id == "double_click":
             b.double_click()
+        elif action_id in KEY_ACTIONS:
+            b.press_key(KEY_ACTIONS[action_id])
         elif action_id == TOGGLE_ACTION:
             self.toggle_requested = True
 

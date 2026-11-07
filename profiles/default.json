@@ -81,6 +81,26 @@
       },
       "hold_ms": 120,
       "image": null
+    },
+    {
+      "action": "press_enter",
+      "gesture": {
+        "fingers": "10000",
+        "pinch": null,
+        "orientation": "any"
+      },
+      "hold_ms": 500,
+      "image": null
+    },
+    {
+      "action": "press_delete",
+      "gesture": {
+        "fingers": "01100",
+        "pinch": null,
+        "orientation": "right"
+      },
+      "hold_ms": 500,
+      "image": null
     }
   ]
 }

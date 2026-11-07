@@ -39,6 +39,7 @@ class HandFeatures:
     bbox: tuple             # (x_min, y_min, x_max, y_max)
     hand_size: float
     gaps: tuple = ()        # thumb-to-fingertip distance / hand size, index middle ring pinky
+    orientation_margin: float = 45.0  # degrees from the nearest up/down/left/right boundary
 
     @property
     def fingers_str(self) -> str:
@@ -73,9 +74,18 @@ def extract(landmarks) -> HandFeatures:
     else:
         pinch = None
 
-    dx = lm[MIDDLE_MCP][0] - wrist[0]
-    dy = wrist[1] - lm[MIDDLE_MCP][1]  # flip so positive is up
+    # Direction is where the raised fingers point (knuckle to tip), so a sideways
+    # peace sign reads sideways even when the palm stays fairly upright. With no
+    # finger raised (fist, thumbs up) fall back to the palm: wrist to middle knuckle.
+    raised = [name for name, up in zip(PINCH_FINGERS, fingers[1:]) if up]
+    if raised:
+        dx = sum(lm[_TIP[n]][0] - lm[_MCP[n]][0] for n in raised)
+        dy = sum(lm[_MCP[n]][1] - lm[_TIP[n]][1] for n in raised)   # flip so positive is up
+    else:
+        dx = lm[MIDDLE_MCP][0] - wrist[0]
+        dy = wrist[1] - lm[MIDDLE_MCP][1]
     angle = math.degrees(math.atan2(dy, dx))
+    orientation_margin = 45.0 - abs((angle + 45.0) % 90.0 - 45.0)
     if -45 <= angle < 45:
         orientation = "right"
     elif 45 <= angle < 135:
@@ -94,4 +104,5 @@ def extract(landmarks) -> HandFeatures:
     ys = [p[1] for p in lm]
     bbox = (min(xs), min(ys), max(xs), max(ys))
 
-    return HandFeatures(tuple(fingers), pinch, orientation, pointer, knuckle, pinch_gap, bbox, hand_size, gaps)
+    return HandFeatures(tuple(fingers), pinch, orientation, pointer, knuckle, pinch_gap, bbox, hand_size, gaps,
+                        orientation_margin)

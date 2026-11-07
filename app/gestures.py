@@ -6,6 +6,11 @@ from .features import FINGER_NAMES, HandFeatures
 
 ORIENTATIONS = ("any", "up", "down", "left", "right")
 PINCHES = (None, "index", "middle", "ring", "pinky", "all")
+# A gesture that needs a direction only starts within 40 degrees of it, so a hand near a
+# diagonal can't start, say, scrolling when Backspace was meant. Once it is the current
+# gesture it keeps matching anywhere in its 45-degree sector (margin 0), so ordinary
+# hand wobble doesn't restart its hold timer.
+ORIENTATION_MARGIN = 5.0
 
 
 @dataclass(frozen=True)
@@ -22,7 +27,7 @@ class Gesture:
         if self.orientation not in ORIENTATIONS:
             raise ValueError(f"bad orientation {self.orientation!r}")
 
-    def matches(self, f: HandFeatures) -> bool:
+    def matches(self, f: HandFeatures, margin: float = ORIENTATION_MARGIN) -> bool:
         if f.pinch != self.pinch:
             return False
         for want, have in zip(self.fingers, f.fingers):
@@ -30,7 +35,9 @@ class Gesture:
                 continue
             if (want == "1") != bool(have):
                 return False
-        return self.orientation == "any" or self.orientation == f.orientation
+        if self.orientation == "any":
+            return True
+        return self.orientation == f.orientation and f.orientation_margin >= margin
 
     def specificity(self) -> tuple:
         wildcards = self.fingers.count("*")
@@ -63,7 +70,10 @@ class Gesture:
             else:
                 parts.append(" + ".join(down).capitalize() + " down")
         if self.orientation != "any":
-            parts.append(f"pointing {self.orientation}")
+            # Orientation is measured on the raw (unmirrored) camera image; describe it
+            # from the user's point of view, matching the mirrored preview.
+            seen = {"left": "right", "right": "left"}.get(self.orientation, self.orientation)
+            parts.append(f"pointing {seen}")
         return ", ".join(parts)
 
     def to_dict(self) -> dict:

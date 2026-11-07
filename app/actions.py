@@ -38,11 +38,15 @@ ACTIONS: dict[str, Action] = {a.id: a for a in [
            hint="hold to carry the window under the pointer"),
     Action("scroll_up", "Scroll up", CONTINUOUS),
     Action("scroll_down", "Scroll down", CONTINUOUS),
+    Action("press_enter", "Enter", ONESHOT, default_hold_ms=400, hint="presses the Enter key"),
+    Action("press_delete", "Delete", ONESHOT, default_hold_ms=400,
+           hint="deletes the character before the text cursor"),
     Action("toggle_gestures", "Pause / resume", ONESHOT, default_hold_ms=1500,
            hint="works while paused too"),
 ]}
 
 TOGGLE_ACTION = "toggle_gestures"
+KEY_ACTIONS = {"press_enter": "enter", "press_delete": "backspace"}  # action -> pyautogui key
 
 
 class Backend:
@@ -54,6 +58,7 @@ class Backend:
     def click(self, button: str = "left"): ...
     def double_click(self): ...
     def scroll(self, amount: int): ...
+    def press_key(self, key: str): ...
     speech_available = False
     dictation_state = "idle"
 
@@ -104,6 +109,9 @@ class PyAutoGuiBackend(Backend):
 
     def click(self, button="left"):
         self._gui.click(button=button)
+
+    def press_key(self, key):
+        self._gui.press(key)
 
     def double_click(self):
         self._gui.doubleClick()
