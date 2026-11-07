@@ -5,6 +5,7 @@ import pyautogui
 import autopy
 import time
 import speech_recognition as sr
+from magnifier import ScreenMagnifier
 
 class GestureRecognizer:
     def __init__(self, activeMode=False, maxHands=1, detectionConfidence=False, trackingConfidence=0.5):
@@ -107,101 +108,106 @@ def main():
     scr_w, scr_h = autopy.screen.size()
 
     hold = False
+    magnifier = None
 
-    while True:
-        _, img = cap.read()
-        img = detector.detectHands(img)
-        lmList, _ = detector.getPositions(img)           
+    try:
+        magnifier = ScreenMagnifier()
+        while True:
+            _, img = cap.read()
+            img = detector.detectHands(img)
+            lmList, _ = detector.getPositions(img)
 
-        if len(lmList) != 0:
-            x1, y1 = lmList[8][1:]
-            fingers = detector.fingersRaised()
-            cv2.rectangle(img, (frameR, frameR), (w - frameR, h - frameR), (255, 0, 255), 2)
-            
-            if fingers[1] == 1 and fingers[2] == 0:
-                x3 = np.interp(x1, (frameR, w - frameR), (0, scr_w))
-                y3 = np.interp(y1, (frameR, h - frameR), (0, scr_h))
+            if len(lmList) != 0:
+                x1, y1 = lmList[8][1:]
+                fingers = detector.fingersRaised()
+                cv2.rectangle(img, (frameR, frameR), (w - frameR, h - frameR), (255, 0, 255), 2)
 
-                curr_x = prev_x + (x3 - prev_x) / smooth
-                curr_y = prev_y + (y3 - prev_y) / smooth
+                if fingers[1] == 1 and fingers[2] == 0:
+                    x3 = np.interp(x1, (frameR, w - frameR), (0, scr_w))
+                    y3 = np.interp(y1, (frameR, h - frameR), (0, scr_h))
 
-                autopy.mouse.move(scr_w - curr_x, curr_y)
-                cv2.circle(img, (x1, y1), 7, (255, 0, 255), cv2.FILLED)
-                prev_x, prev_y = curr_x, curr_y
+                    curr_x = prev_x + (x3 - prev_x) / smooth
+                    curr_y = prev_y + (y3 - prev_y) / smooth
 
-                stab_buf.append((curr_x, curr_y))
-                if len(stab_buf) > stab_thresh:
-                    stab_buf.pop(0)
-            
-            # Single left click           
-            if fingers[1] == 1 and fingers[2] == 1:
-                if len(stab_buf) == stab_thresh and all(
-                    np.linalg.norm(np.array(pos) - np.array(stab_buf[0])) < stab_rad
-                    for pos in stab_buf
-                ):
-                    cv2.circle(img, (x1, y1), 15, (0, 255, 0), cv2.FILLED)
+                    autopy.mouse.move(scr_w - curr_x, curr_y)
+                    cv2.circle(img, (x1, y1), 7, (255, 0, 255), cv2.FILLED)
+                    prev_x, prev_y = curr_x, curr_y
+
+                    stab_buf.append((curr_x, curr_y))
+                    if len(stab_buf) > stab_thresh:
+                        stab_buf.pop(0)
+
+                # Single left click
+                if fingers[1] == 1 and fingers[2] == 1:
+                    if len(stab_buf) == stab_thresh and all(
+                        np.linalg.norm(np.array(pos) - np.array(stab_buf[0])) < stab_rad
+                        for pos in stab_buf
+                    ):
+                        cv2.circle(img, (x1, y1), 15, (0, 255, 0), cv2.FILLED)
+                        autopy.mouse.click()
+                        stab_buf.clear()
+
+                # Double left click
+                if fingers[1] == 1 and fingers[4] == 1 and all(f == 0 for f in [fingers[0], fingers[2], fingers[3]]):
                     autopy.mouse.click()
-                    stab_buf.clear()
-            
-            # Double left click
-            if fingers[1] == 1 and fingers[4] == 1 and all(f == 0 for f in [fingers[0], fingers[2], fingers[3]]):
-                autopy.mouse.click()
-                autopy.mouse.click()
-            
-            # Single right click
-            if fingers[0] == 1 and all(f == 0 for f in fingers[1:]):
-                if len(stab_buf) == stab_thresh and all(
-                    np.linalg.norm(np.array(pos) - np.array(stab_buf[0])) < stab_rad
-                    for pos in stab_buf
-                ):
-                    cv2.circle(img, (x1, y1), 15, (0, 255, 0), cv2.FILLED)
-                    autopy.mouse.click(autopy.mouse.Button.RIGHT)
-                    stab_buf.clear()
-            
-            # Hold left click and move
-            if fingers[0] == 0 and all(f == 1 for f in fingers[1:]):
-                if not hold:
-                    autopy.mouse.toggle(down=True)
-                    hold = True
+                    autopy.mouse.click()
 
-                x3 = np.interp(x1, (frameR, w - frameR), (0, scr_w))
-                y3 = np.interp(y1, (frameR, h - frameR), (0, scr_h))
-                curr_x = prev_x + (x3 - prev_x) / smooth
-                curr_y = prev_y + (y3 - prev_y) / smooth
-                autopy.mouse.move(scr_w - curr_x, curr_y)
-                cv2.circle(img, (x1, y1), 7, (255, 0, 255), cv2.FILLED)
-                prev_x, prev_y = curr_x, curr_y
-            else:
-                if hold:
-                    autopy.mouse.toggle(down=False)
-                    hold = False
+                # Single right click
+                if fingers[0] == 1 and all(f == 0 for f in fingers[1:]):
+                    if len(stab_buf) == stab_thresh and all(
+                        np.linalg.norm(np.array(pos) - np.array(stab_buf[0])) < stab_rad
+                        for pos in stab_buf
+                    ):
+                        cv2.circle(img, (x1, y1), 15, (0, 255, 0), cv2.FILLED)
+                        autopy.mouse.click(autopy.mouse.Button.RIGHT)
+                        stab_buf.clear()
 
-            # Scroll down
-            if all(f == 0 for f in fingers):
-                pyautogui.scroll(scroll_down_speed)
-            
-            # Scroll up
-            if all(f == 1 for f in fingers):
-                pyautogui.scroll(scroll_up_speed)
+                # Hold left click and move
+                if fingers[0] == 0 and all(f == 1 for f in fingers[1:]):
+                    if not hold:
+                        autopy.mouse.toggle(down=True)
+                        hold = True
 
-            # Speech to text
-            if fingers[2] == 1 and all(f == 0 for f in [fingers[0], fingers[1], fingers[3], fingers[4]]):
-                text = speech_to_text()
-                if text:
-                    pyautogui.write(text, interval=interval)
+                    x3 = np.interp(x1, (frameR, w - frameR), (0, scr_w))
+                    y3 = np.interp(y1, (frameR, h - frameR), (0, scr_h))
+                    curr_x = prev_x + (x3 - prev_x) / smooth
+                    curr_y = prev_y + (y3 - prev_y) / smooth
+                    autopy.mouse.move(scr_w - curr_x, curr_y)
+                    cv2.circle(img, (x1, y1), 7, (255, 0, 255), cv2.FILLED)
+                    prev_x, prev_y = curr_x, curr_y
+                else:
+                    if hold:
+                        autopy.mouse.toggle(down=False)
+                        hold = False
 
+                # Scroll down
+                if all(f == 0 for f in fingers):
+                    pyautogui.scroll(scroll_down_speed)
 
-        curr_time = time.time()
-        fps = 1 / (curr_time - prev_time)
-        prev_time = curr_time
-        cv2.putText(img, str(int(fps)), (20, 50), cv2.FONT_HERSHEY_PLAIN, 3, (0, 0, 0), 3)
-        cv2.imshow("Archand", img)
-        
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-    
-    cap.release()
-    cv2.destroyAllWindows()
+                # Scroll up
+                if all(f == 1 for f in fingers):
+                    pyautogui.scroll(scroll_up_speed)
+
+                # Speech to text
+                if fingers[2] == 1 and all(f == 0 for f in [fingers[0], fingers[1], fingers[3], fingers[4]]):
+                    text = speech_to_text()
+                    if text:
+                        pyautogui.write(text, interval=interval)
+
+            curr_time = time.time()
+            fps = 1 / (curr_time - prev_time)
+            prev_time = curr_time
+            cv2.putText(img, str(int(fps)), (20, 50), cv2.FONT_HERSHEY_PLAIN, 3, (0, 0, 0), 3)
+            cv2.imshow("Gesture Recognition", img)
+            magnifier.update()
+
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
+        if magnifier is not None:
+            magnifier.close()
 
 if __name__ == "__main__":
     main()
