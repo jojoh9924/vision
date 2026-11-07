@@ -52,6 +52,7 @@ class Pane(tk.Tk):
 
         self._rows: dict[str, dict] = {}
         self._photos: list = []
+        self._show_unassigned = False   # unassigned actions stay tucked away until asked for
         self._style()
         self._build()
         self.refresh_rows()
@@ -155,8 +156,16 @@ class Pane(tk.Tk):
         self._rows.clear()
         self._photos.clear()
         profile = self.c.profile
-        actions = sorted(ACTIONS.values(), key=lambda a: profile.mapping_for(a.id) is None)
+        assigned = [a for a in ACTIONS.values() if profile.mapping_for(a.id)]
+        unassigned = [a for a in ACTIONS.values() if not profile.mapping_for(a.id)]
         wrap = self.width - self.icon - self._pad(76)
+        actions = list(assigned)
+        if unassigned:
+            if self._show_unassigned:
+                actions += unassigned
+            n = len(unassigned)
+            label = (f"Hide unassigned actions" if self._show_unassigned
+                     else f"{n} unassigned action{'s' if n != 1 else ''}  ·  show")
         for action in actions:
             mapping = profile.mapping_for(action.id)
             card = self._card(self.rows_frame, cursor="hand2")
@@ -176,7 +185,7 @@ class Pane(tk.Tk):
             text = tk.Frame(content, bg=CARD)
             text.pack(side="left", fill="x", expand=True, padx=(self._pad(10), 0))
             tk.Label(text, text=action.label, bg=CARD, fg=TEXT if mapping else MUTED, anchor="w",
-                     font=(FONT, 10, "bold")).pack(fill="x")
+                     justify="left", wraplength=wrap, font=(FONT, 10, "bold")).pack(fill="x")
             desc = mapping.gesture.describe() if mapping else "Not assigned"
             if mapping and mapping.hold_ms >= 300:
                 desc += f"  ·  hold {mapping.hold_ms / 1000:g}s"
@@ -188,8 +197,15 @@ class Pane(tk.Tk):
             for w in (inner, accent, content, icon, text, *text.winfo_children()):
                 w.bind("<Button-1>", lambda e, a=action.id: self._edit(a))
             self._rows[action.id] = {"inner": inner, "accent": accent, "state": None}
+        if unassigned:
+            ttk.Button(self.rows_frame, text=label, style="Link.TButton",
+                       command=self._toggle_unassigned).pack(anchor="w", padx=self._pad(10), pady=(0, self._pad(6)))
         self.canvas.yview_moveto(0)
         self._sync_switches()
+
+    def _toggle_unassigned(self):
+        self._show_unassigned = not self._show_unassigned
+        self.refresh_rows()
 
     # events from controller
     def _on_event(self, event):

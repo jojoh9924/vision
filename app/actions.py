@@ -38,7 +38,7 @@ ACTIONS: dict[str, Action] = {a.id: a for a in [
            hint="hold to carry the window under the pointer"),
     Action("scroll_up", "Scroll up", CONTINUOUS),
     Action("scroll_down", "Scroll down", CONTINUOUS),
-    Action("toggle_gestures", "Pause / resume gestures", ONESHOT, default_hold_ms=1500,
+    Action("toggle_gestures", "Pause / resume", ONESHOT, default_hold_ms=1500,
            hint="works while paused too"),
 ]}
 

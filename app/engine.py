@@ -22,6 +22,8 @@ EASE_S = 0.15          # after a click freeze ends, close the gap to the finger 
 SNAP_WINDOW = 0.25     # a click only counts if the pinched fingers snapped shut this recently
 SNAP_DROP = 0.20       # how far the gap must fall, in hand sizes, to count as a snap
 CLICK_ACTIONS = {"left_button", "left_click", "right_click", "double_click"}
+HOLD_ACTIONS = {"move_window", "drag"}   # kept through brief detection dropouts
+RELEASE_GRACE_S = 0.3                    # how long a hold survives without its gesture
 DAMP_S = 0.4           # after a click starts, use heavy smoothing for this long (One Euro is too eager)
 HOVER_RADIUS_PX = 18   # target wobble treated as "holding still" (hover lock)
 HOVER_MS = 450         # how long still before the cursor locks in place (hover lock)
@@ -55,6 +57,7 @@ class Engine:
         self._candidate_since = 0.0
         self._button_down = False
         self._grabbing = False      # carrying a window (move_window action)
+        self._hold_lost_at = None   # when a held gesture stopped matching (release grace)
         self._grab_cursor = None    # cursor screen position when the window was grabbed
         self._last_seen = 0.0
         self._prev_seen = 0.0           # time of the frame before _last_seen
@@ -130,6 +133,17 @@ class Engine:
             match = next((m for m in candidates
                           if m.action != skipped and m.gesture.matches(features)), None)
 
+        # A grabbed window or drag must not drop because one frame misread the hand:
+        # keep it going for a short grace period before letting go.
+        if (self.active is not None and self.active.action in HOLD_ACTIONS
+                and match is not self.active):
+            if self._hold_lost_at is None:
+                self._hold_lost_at = now
+            if now - self._hold_lost_at < RELEASE_GRACE_S:
+                match = self.active
+        else:
+            self._hold_lost_at = None
+
         if match is not self.candidate:
             self.release()
             self.candidate = match
@@ -153,6 +167,7 @@ class Engine:
         if self._grabbing:
             self.backend.release_window()
             self._grabbing = False
+        self._hold_lost_at = None
         self._press_knuckle = None
         self._drag_started = False
         self.active = None

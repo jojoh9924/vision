@@ -18,10 +18,14 @@ _MCP = {"index": INDEX_MCP, "middle": MIDDLE_MCP, "ring": 13, "pinky": PINKY_MCP
 
 PINCH_RATIO = 0.25  # thumb-to-fingertip distance, as a fraction of hand size
 PINCH_REACH = 1.05  # pinching fingertip must be this far past its knuckle (wrist-relative)
+BUNCH_RATIO = 0.34  # looser radius for all fingertips bunched on the thumb
+BUNCH_REACH = 0.95  # bunched fingertips may sit level with their knuckles
+BUNCH_COUNT = 3     # at least this many fingertips on the thumb
 
 
 def _dist(a, b):
-    return math.hypot(a[0] - b[0], a[1] - b[1])
+    """Distance using every coordinate both points have (2D or 3D)."""
+    return math.sqrt(sum((p - q) ** 2 for p, q in zip(a, b)))
 
 
 @dataclass(frozen=True)
@@ -55,13 +59,17 @@ def extract(landmarks) -> HandFeatures:
     # A pinch is the thumb touching exactly one fingertip that reaches past its own
     # knuckle. A thumb resting on curled fingers (fist, or one finger raised) does
     # not count: those fingertips sit closer to the wrist than their knuckle.
-    near = [name for name in PINCH_FINGERS
-            if _dist(lm[THUMB_TIP], lm[_TIP[name]]) < PINCH_RATIO * hand_size
-            and _dist(lm[_TIP[name]], wrist) > PINCH_REACH * _dist(lm[_MCP[name]], wrist)]
-    if len(near) >= 3:
+    def near(ratio, reach):
+        return [name for name in PINCH_FINGERS
+                if _dist(lm[THUMB_TIP], lm[_TIP[name]]) < ratio * hand_size
+                and _dist(lm[_TIP[name]], wrist) > reach * _dist(lm[_MCP[name]], wrist)]
+
+    bunched = near(BUNCH_RATIO, BUNCH_REACH)
+    single = near(PINCH_RATIO, PINCH_REACH)
+    if len(bunched) >= BUNCH_COUNT:
         pinch = "all"          # fingertips bunched on the thumb
-    elif len(near) == 1:
-        pinch = near[0]
+    elif len(single) == 1:
+        pinch = single[0]
     else:
         pinch = None
 
@@ -77,8 +85,8 @@ def extract(landmarks) -> HandFeatures:
     else:
         orientation = "left"
 
-    pointer = tuple(lm[INDEX_TIP])
-    knuckle = tuple(lm[INDEX_MCP])
+    pointer = tuple(lm[INDEX_TIP][:2])
+    knuckle = tuple(lm[INDEX_MCP][:2])
     pinch_gap = _dist(lm[THUMB_TIP], lm[INDEX_TIP]) / hand_size
     gaps = tuple(_dist(lm[THUMB_TIP], lm[_TIP[name]]) / hand_size for name in PINCH_FINGERS)
 

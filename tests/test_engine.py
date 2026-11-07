@@ -305,6 +305,7 @@ def test_all_fingertips_pinch_carries_the_window_under_the_cursor():
     e.update(feat("11111", pinch="all", center=(300, 330)), 0.5)
     assert b.moves and b.moves[-1][1] > 0
     e.update(feat("01000", center=(300, 330)), 0.6)
+    e.update(feat("01000", center=(300, 330)), 1.0)   # past the release grace
     assert b.grabbed == "released" and b.events == []
 
 
@@ -315,4 +316,24 @@ def test_move_window_falls_back_to_drag_when_unsupported():
     e.update(f, 0.2)
     assert b.events == ["down"]
     e.update(feat("01000"), 0.3)
+    e.update(feat("01000"), 0.7)          # past the release grace
     assert b.events == ["down", "up"]
+
+
+def test_window_hold_survives_brief_detection_dropouts():
+    e, b = make_engine()
+    b.grabbed = None
+    b.grab_window_at = lambda x, y: setattr(b, "grabbed", (x, y)) or True
+    b.move_grabbed_window = lambda dx, dy: None
+    b.release_window = lambda: setattr(b, "grabbed", "released")
+    f = feat("11111", pinch="all")
+    e.update(f, 0.0)
+    e.update(f, 0.2)
+    assert b.grabbed not in (None, "released")
+    e.update(feat("11111", pinch="index"), 0.25)   # one misread frame
+    e.update(None, 0.3)                            # one lost frame
+    e.update(f, 0.35)
+    assert b.grabbed != "released" and e.active.action == "move_window"
+    e.update(feat("01000"), 0.5)                   # really let go: grace runs out
+    e.update(feat("01000"), 0.9)
+    assert b.grabbed == "released"

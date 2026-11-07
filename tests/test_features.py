@@ -42,3 +42,15 @@ def test_all_fingertips_together_is_its_own_pinch():
     f = features.extract(landmarks("11111", pinch="all"))
     assert f.pinch == "all"
     assert features.extract(landmarks("00000")).pinch is None   # a fist is not a pinch
+
+
+def test_pinch_geometry_works_in_3d():
+    # same hand, but every landmark carries a depth: the pinch is still seen
+    lm = [(x, y, 0.0) for x, y in landmarks("11111", pinch="index")]
+    assert features.extract(lm).pinch == "index"
+    lm = [(x, y, 0.0) for x, y in landmarks("11111", pinch="all")]
+    assert features.extract(lm).pinch == "all"
+    # a fingertip that only looks close in 2D but is far in depth is not a pinch
+    lm = [list(p) + [0.0] for p in landmarks("11111", pinch="index")]
+    lm[8][2] = 200.0
+    assert features.extract([tuple(p) for p in lm]).pinch is None

@@ -49,14 +49,16 @@ class HandDetector:
         if not result.hand_landmarks:
             return None
         h, w = frame_bgr.shape[:2]
-        return [(lm.x * w, lm.y * h) for lm in result.hand_landmarks[0]]
+        # z is relative depth in roughly the same units as x; keep it so pinch
+        # geometry can be measured in 3D and survive the hand tilting
+        return [(lm.x * w, lm.y * h, lm.z * w) for lm in result.hand_landmarks[0]]
 
     def close(self):
         self._landmarker.close()
 
 
 def draw_hand(frame, landmarks, color=(0, 255, 0)):
-    pts = [(int(x), int(y)) for x, y in landmarks]
+    pts = [(int(p[0]), int(p[1])) for p in landmarks]
     for a, b in BONES:
         cv2.line(frame, pts[a], pts[b], (255, 255, 255), 2)
     for i, p in enumerate(pts):
